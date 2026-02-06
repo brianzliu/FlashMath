@@ -1,0 +1,60 @@
+import { create } from "zustand";
+import type { Folder, Flashcard, LLMConfig } from "@/lib/types";
+
+interface AppState {
+  folders: Folder[];
+  setFolders: (folders: Folder[]) => void;
+  addFolder: (folder: Folder) => void;
+  updateFolder: (id: string, updates: Partial<Folder>) => void;
+  removeFolder: (id: string) => void;
+
+  flashcards: Flashcard[];
+  setFlashcards: (flashcards: Flashcard[]) => void;
+  addFlashcard: (flashcard: Flashcard) => void;
+  updateFlashcard: (id: string, updates: Partial<Flashcard>) => void;
+  removeFlashcard: (id: string) => void;
+
+  llmConfig: LLMConfig | null;
+  setLLMConfig: (config: LLMConfig | null) => void;
+
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
+}
+
+export const useAppStore = create<AppState>((set) => ({
+  folders: [],
+  setFolders: (folders) => set({ folders }),
+  addFolder: (folder) =>
+    set((state) => ({ folders: [...state.folders, folder] })),
+  updateFolder: (id, updates) =>
+    set((state) => ({
+      folders: state.folders.map((f) =>
+        f.id === id ? { ...f, ...updates } : f
+      ),
+    })),
+  removeFolder: (id) =>
+    set((state) => ({
+      folders: state.folders.filter((f) => f.id !== id),
+    })),
+
+  flashcards: [],
+  setFlashcards: (flashcards) => set({ flashcards }),
+  addFlashcard: (flashcard) =>
+    set((state) => ({ flashcards: [...state.flashcards, flashcard] })),
+  updateFlashcard: (id, updates) =>
+    set((state) => ({
+      flashcards: state.flashcards.map((c) =>
+        c.id === id ? { ...c, ...updates } : c
+      ),
+    })),
+  removeFlashcard: (id) =>
+    set((state) => ({
+      flashcards: state.flashcards.filter((c) => c.id !== id),
+    })),
+
+  llmConfig: null,
+  setLLMConfig: (config) => set({ llmConfig: config }),
+
+  sidebarOpen: true,
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+}));

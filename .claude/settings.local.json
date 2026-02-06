@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(npm --version:*)",
+      "Bash(npx:*)",
+      "Bash(rustc:*)",
+      "Bash(cargo --version:*)",
+      "Bash(cargo install:*)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(cargo tauri init:*)",
+      "Bash(cargo check:*)",
+      "Bash(npm run build:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo tauri build:*)"
+    ]
+  }
+}

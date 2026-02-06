@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Screenshot Selection</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      overflow: hidden;
+      cursor: crosshair;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #screenshot {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+    #overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.4);
+    }
+    #selection {
+      position: fixed;
+      border: 2px solid #3b82f6;
+      background: transparent;
+      display: none;
+      /* Cut through the overlay to show the original screenshot */
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+    }
+    #instructions {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 16px;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <img id="screenshot" />
+  <div id="overlay"></div>
+  <div id="selection"></div>
+  <div id="instructions">Click and drag to select a region. Press Escape to cancel.</div>
+
+  <script>
+    const selection = document.getElementById('selection');
+    let startX, startY, isDrawing = false;
+
+    // Listen for the screenshot data from the main process
+    window.__TAURI_INTERNALS__?.invoke?.('__get_screenshot_data')
+      ?.then(dataUrl => {
+        document.getElementById('screenshot').src = dataUrl;
+      });
+
+    document.addEventListener('mousedown', (e) => {
+      isDrawing = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      selection.style.display = 'block';
+      selection.style.left = startX + 'px';
+      selection.style.top = startY + 'px';
+      selection.style.width = '0';
+      selection.style.height = '0';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDrawing) return;
+      const x = Math.min(e.clientX, startX);
+      const y = Math.min(e.clientY, startY);
+      const w = Math.abs(e.clientX - startX);
+      const h = Math.abs(e.clientY - startY);
+      selection.style.left = x + 'px';
+      selection.style.top = y + 'px';
+      selection.style.width = w + 'px';
+      selection.style.height = h + 'px';
+    });
+
+    document.addEventListener('mouseup', (e) => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      const x = Math.min(e.clientX, startX);
+      const y = Math.min(e.clientY, startY);
+      const w = Math.abs(e.clientX - startX);
+      const h = Math.abs(e.clientY - startY);
+
+      if (w < 10 || h < 10) {
+        selection.style.display = 'none';
+        return;
+      }
+
+      // Send selection back to main process
+      if (window.__TAURI_INTERNALS__) {
+        window.__TAURI_INTERNALS__.invoke('__capture_selection', {
+          x: Math.round(x),
+          y: Math.round(y),
+          width: Math.round(w),
+          height: Math.round(h),
+        });
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (window.__TAURI_INTERNALS__) {
+          window.__TAURI_INTERNALS__.invoke('__capture_cancel');
+        }
+      }
+    });
+  </script>
+</body>
+</html>
