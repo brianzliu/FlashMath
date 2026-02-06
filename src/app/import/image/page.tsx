@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { AnnotationCanvas, type Region } from "@/components/AnnotationCanvas";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 export default function ImportImagePage() {
   const router = useRouter();
@@ -34,7 +37,6 @@ export default function ImportImagePage() {
         const pathStr = path as string;
         setImagePath(pathStr);
         // Load the image as data URL for display
-        const dataUrl = await commands.getFlashcard("dummy").catch(() => null);
         // Use Tauri to read the file
         const { readFile } = await import("@tauri-apps/plugin-fs");
         const contents = await readFile(pathStr);
@@ -122,7 +124,7 @@ export default function ImportImagePage() {
         });
       }
 
-      router.push(selectedFolder ? `/folder/${selectedFolder}` : "/");
+      router.push(selectedFolder ? `/folder?id=${selectedFolder}` : "/");
     } catch (err) {
       console.error("Failed to create flashcards:", err);
     } finally {
@@ -133,34 +135,33 @@ export default function ImportImagePage() {
   const questionCount = regions.filter((r) => r.role === "question").length;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Import from Image</h1>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Import from Image</h1>
+        <p className="text-sm text-muted-foreground">
+          Draw question and answer regions, then generate cards.
+        </p>
+      </div>
 
       {!imageUrl ? (
-        <div className="border-2 border-dashed border-border rounded-lg p-12 text-center">
-          <p className="text-muted-foreground mb-4">
-            Select an image file to import flashcards from.
-          </p>
-          <button
-            onClick={handleOpenFile}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-md font-medium"
-          >
-            Open Image
-          </button>
-        </div>
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
+            <p className="text-muted-foreground">
+              Select an image file to import flashcards from.
+            </p>
+            <Button onClick={handleOpenFile}>Open Image</Button>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
               Draw rectangles around questions (Q) and answers (A). Tag each
               region using the toolbar.
             </p>
-            <button
-              onClick={handleOpenFile}
-              className="text-sm text-primary hover:underline"
-            >
+            <Button variant="ghost" onClick={handleOpenFile}>
               Change image
-            </button>
+            </Button>
           </div>
 
           <AnnotationCanvas
@@ -168,45 +169,54 @@ export default function ImportImagePage() {
             onRegionsChange={handleRegionsChange}
           />
 
-          <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-            <div>
-              <label className="block text-sm font-medium mb-1">Folder</label>
-              <select
-                value={selectedFolder}
-                onChange={(e) => setSelectedFolder(e.target.value)}
-                className="px-3 py-1.5 border border-border rounded-md bg-background text-sm"
-              >
-                <option value="">No folder</option>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Card creation</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Folder</label>
+                <select
+                  value={selectedFolder}
+                  onChange={(e) => setSelectedFolder(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">No folder</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useOcr}
-                onChange={(e) => setUseOcr(e.target.checked)}
-                className="rounded"
-              />
-              Convert to LaTeX (OCR)
-            </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useOcr}
+                  onChange={(e) => setUseOcr(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                Convert to LaTeX (OCR)
+              </label>
 
-            <div className="ml-auto">
-              <button
-                onClick={handleCreateCards}
-                disabled={creating || questionCount === 0}
-                className="px-6 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50"
-              >
-                {creating
-                  ? "Creating..."
-                  : `Create ${questionCount} Card${questionCount !== 1 ? "s" : ""}`}
-              </button>
-            </div>
-          </div>
+              <div className="ml-auto flex items-center gap-3">
+                <Badge variant="secondary">
+                  {questionCount} question{questionCount !== 1 ? "s" : ""}
+                </Badge>
+                <Button
+                  onClick={handleCreateCards}
+                  disabled={creating || questionCount === 0}
+                >
+                  {creating
+                    ? "Creating..."
+                    : `Create ${questionCount} Card${
+                        questionCount !== 1 ? "s" : ""
+                      }`}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

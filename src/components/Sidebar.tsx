@@ -7,6 +7,18 @@ import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
 import { cn } from "@/lib/utils";
 import type { Folder } from "@/lib/types";
+import {
+  LayoutDashboard,
+  Settings,
+  FolderPlus,
+  Folder as FolderIcon,
+  Trash2,
+  ImagePlus,
+  FileDown,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -18,6 +30,7 @@ export function Sidebar() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const loadFolders = useCallback(async () => {
     try {
@@ -33,14 +46,19 @@ export function Sidebar() {
   }, [loadFolders]);
 
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return;
+    const name = newFolderName.trim();
+    if (!name) {
+      setCreateError("Folder name is required.");
+      return;
+    }
     try {
-      const folder = await commands.createFolder(newFolderName.trim());
+      const folder = await commands.createFolder(name);
       addFolder(folder);
       setNewFolderName("");
       setIsCreating(false);
+      setCreateError(null);
     } catch {
-      // Handle error
+      setCreateError("Failed to create folder. Try again.");
     }
   };
 
@@ -70,48 +88,59 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="w-64 h-full border-r border-border bg-card flex flex-col">
-      <div className="p-4 border-b border-border">
-        <h1 className="text-lg font-bold">FlashMath</h1>
+    <aside className="flex h-screen w-72 flex-col border-r border-border bg-background">
+      <div className="px-6 py-5">
+        <p className="text-xs font-medium text-muted-foreground">Workspace</p>
+        <h1 className="text-lg font-semibold">FlashMath</h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          Focused recall and spaced repetition
+        </p>
       </div>
 
-      <nav className="p-2 space-y-1">
+      <nav className="px-3">
         {navItems.map((item) => (
           <Link
             key={item.href}
             href={item.href}
             className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
               pathname === item.href
-                ? "bg-primary text-primary-foreground"
-                : "hover:bg-muted text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-foreground hover:bg-accent"
             )}
           >
-            {item.icon === "grid" && <GridIcon />}
-            {item.icon === "settings" && <SettingsIcon />}
+            {item.icon === "grid" && <LayoutDashboard className="h-4 w-4" />}
+            {item.icon === "settings" && <Settings className="h-4 w-4" />}
             {item.label}
           </Link>
         ))}
       </nav>
 
-      <div className="p-2 border-t border-border">
-        <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-sm font-medium text-muted-foreground">
+      <div className="px-3 pt-4">
+        <Separator />
+      </div>
+
+      <div className="px-3 py-3">
+        <div className="flex items-center justify-between px-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Folders
           </span>
-          <button
-            onClick={() => setIsCreating(true)}
-            className="text-muted-foreground hover:text-foreground text-lg leading-none"
-            title="New folder"
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => {
+              setIsCreating(true);
+              setCreateError(null);
+            }}
+            aria-label="Create folder"
           >
-            +
-          </button>
+            <FolderPlus className="h-4 w-4" />
+          </Button>
         </div>
 
         {isCreating && (
-          <div className="px-3 py-1">
-            <input
-              type="text"
+          <div className="mt-3 space-y-2 rounded-lg border border-border bg-muted/40 p-3">
+            <Input
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               onKeyDown={(e) => {
@@ -119,13 +148,32 @@ export function Sidebar() {
                 if (e.key === "Escape") setIsCreating(false);
               }}
               placeholder="Folder name"
-              className="w-full px-2 py-1 text-sm border border-border rounded bg-background"
               autoFocus
             />
+            {createError && (
+              <p className="text-xs text-destructive">{createError}</p>
+            )}
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleCreateFolder}>
+                Create
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setIsCreating(false)}
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         )}
 
-        <div className="space-y-0.5">
+        <div className="mt-3 space-y-1">
+          {folders.length === 0 && (
+            <div className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+              No folders yet. Create one to start building decks.
+            </div>
+          )}
           {folders.map((folder) => (
             <FolderItem
               key={folder.id}
@@ -146,19 +194,20 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="mt-auto p-2 border-t border-border">
+      <div className="mt-auto px-3 pb-4">
+        <Separator className="mb-3" />
         <Link
           href="/import/pdf"
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-sm hover:bg-muted text-foreground transition-colors"
+          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
         >
-          <ImportIcon />
+          <FileDown className="h-4 w-4" />
           Import PDF
         </Link>
         <Link
           href="/import/image"
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-sm hover:bg-muted text-foreground transition-colors"
+          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
         >
-          <ImageIcon />
+          <ImagePlus className="h-4 w-4" />
           Import Image
         </Link>
       </div>
@@ -189,8 +238,8 @@ function FolderItem({
 }) {
   if (isEditing) {
     return (
-      <div className="px-3 py-1">
-        <input
+      <div className="px-2 py-1">
+        <Input
           type="text"
           value={editName}
           onChange={(e) => onEditChange(e.target.value)}
@@ -198,7 +247,6 @@ function FolderItem({
             if (e.key === "Enter") onSaveEdit();
             if (e.key === "Escape") onCancelEdit();
           }}
-          className="w-full px-2 py-1 text-sm border border-border rounded bg-background"
           autoFocus
         />
       </div>
@@ -206,18 +254,18 @@ function FolderItem({
   }
 
   return (
-    <div className="group flex items-center">
+    <div className="group flex items-center justify-between rounded-md px-2">
       <Link
         href={`/folder?id=${folder.id}`}
         className={cn(
-          "flex-1 flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+          "flex-1 flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
           isActive
-            ? "bg-primary text-primary-foreground"
-            : "hover:bg-muted text-foreground"
+            ? "bg-primary/10 text-primary"
+            : "text-foreground hover:bg-accent"
         )}
         onDoubleClick={onStartEdit}
       >
-        <FolderIcon />
+        <FolderIcon className="h-4 w-4" />
         <span className="truncate">{folder.name}</span>
         {folder.deadline && (
           <span className="ml-auto text-xs opacity-60">
@@ -230,107 +278,11 @@ function FolderItem({
       </Link>
       <button
         onClick={onDelete}
-        className="opacity-0 group-hover:opacity-100 px-1 text-muted-foreground hover:text-destructive text-xs transition-opacity"
+        className="ml-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100"
         title="Delete folder"
       >
-        x
+        <Trash2 className="h-4 w-4" />
       </button>
     </div>
-  );
-}
-
-function GridIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
-      />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-      />
-    </svg>
-  );
-}
-
-function FolderIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-      />
-    </svg>
-  );
-}
-
-function ImportIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-      />
-    </svg>
-  );
-}
-
-function ImageIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-      />
-    </svg>
   );
 }

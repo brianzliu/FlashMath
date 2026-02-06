@@ -3,6 +3,10 @@
 import { useState, useEffect } from "react";
 import * as commands from "@/lib/commands";
 import type { LLMConfig } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 const PROVIDERS = [
   { value: "openai", label: "OpenAI" },
@@ -49,7 +53,7 @@ export default function SettingsPage() {
         setBaseUrl(config.base_url);
       })
       .catch(() => {
-        // Not configured yet — use defaults
+        // Not configured yet - use defaults
       })
       .finally(() => setLoading(false));
   }, []);
@@ -103,27 +107,28 @@ export default function SettingsPage() {
   if (loading) return <p className="text-muted-foreground">Loading...</p>;
 
   return (
-    <div className="max-w-xl">
-      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Settings</h1>
+        <p className="text-sm text-muted-foreground">
+          Manage your OCR and LLM connectivity for card creation.
+        </p>
+      </div>
 
-      <div className="space-y-6">
-        {/* LLM Provider */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-medium">LLM Configuration</h2>
+      <Card>
+        <CardHeader className="space-y-2">
+          <CardTitle>LLM Configuration</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Configure your LLM provider for OCR (image to LaTeX) and difficulty
-            estimation. A vision-capable model is required for OCR.
+            A vision-capable model is required for OCR and difficulty estimation.
           </p>
-        </div>
-
-        <div className="space-y-4">
-          {/* Provider */}
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Provider</label>
             <select
               value={provider}
               onChange={(e) => handleProviderChange(e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
               {PROVIDERS.map((p) => (
                 <option key={p.value} value={p.value}>
@@ -133,90 +138,63 @@ export default function SettingsPage() {
             </select>
           </div>
 
-          {/* API Key */}
           {provider !== "ollama" && (
             <div>
               <label className="block text-sm font-medium mb-1">API Key</label>
-              <input
+              <Input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="sk-..."
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
               />
             </div>
           )}
 
-          {/* Model */}
           <div>
             <label className="block text-sm font-medium mb-1">Model</label>
-            <input
+            <Input
               type="text"
               value={model}
               onChange={(e) => setModel(e.target.value)}
               placeholder="e.g., gpt-4o"
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
             />
           </div>
 
-          {/* Base URL */}
           {(provider === "ollama" || provider === "custom") && (
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Base URL
-              </label>
-              <input
+              <label className="block text-sm font-medium mb-1">Base URL</label>
+              <Input
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="http://localhost:11434"
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
               />
             </div>
           )}
-        </div>
 
-        {/* Actions */}
-        <div className="flex gap-3">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-          <button
-            onClick={handleTest}
-            disabled={testing}
-            className="px-6 py-2 bg-secondary text-secondary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50"
-          >
-            {testing ? "Testing..." : "Test Connection"}
-          </button>
-        </div>
+          <div className="flex gap-3">
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </Button>
+            <Button variant="secondary" onClick={handleTest} disabled={testing}>
+              {testing ? "Testing..." : "Test Connection"}
+            </Button>
+          </div>
 
-        {saveMessage && (
-          <p
-            className={`text-sm ${
-              saveMessage.startsWith("Error")
-                ? "text-destructive"
-                : "text-success"
-            }`}
-          >
-            {saveMessage}
-          </p>
-        )}
-        {testResult && (
-          <p
-            className={`text-sm ${
-              testResult.includes("failed")
-                ? "text-destructive"
-                : "text-success"
-            }`}
-          >
-            {testResult}
-          </p>
-        )}
-      </div>
+          {saveMessage && (
+            <Badge variant={saveMessage.startsWith("Error") ? "destructive" : "success"}>
+              {saveMessage}
+            </Badge>
+          )}
+          {testResult && (
+            <Badge
+              variant={testResult.includes("failed") ? "destructive" : "success"}
+            >
+              {testResult}
+            </Badge>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

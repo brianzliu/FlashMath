@@ -2,6 +2,9 @@
 
 import type { Flashcard } from "@/lib/types";
 import { LaTeXRenderer } from "./LaTeXRenderer";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface StudyCardProps {
   card: Flashcard;
@@ -17,65 +20,67 @@ export function StudyCard({
   onRate,
 }: StudyCardProps) {
   return (
-    <div className="border border-border rounded-lg bg-card overflow-hidden">
-      {/* Question */}
-      <div className="p-6 border-b border-border">
-        <p className="text-xs font-medium text-muted-foreground mb-3">
-          QUESTION
-        </p>
-        <CardContent type={card.question_type} content={card.question_content} />
-      </div>
+    <Card>
+      <CardHeader className="space-y-3 border-b border-border">
+        <div className="flex items-center justify-between">
+          <Badge variant="secondary">Question</Badge>
+          <span className="text-xs text-muted-foreground">
+            Timer: {card.timer_mode}
+          </span>
+        </div>
+        <div className="rounded-md bg-background/70 p-4">
+          <FlashcardContent
+            type={card.question_type}
+            content={card.question_content}
+          />
+        </div>
+      </CardHeader>
 
-      {/* Answer */}
       {showAnswer ? (
-        <div className="p-6 border-b border-border bg-muted/30">
-          <p className="text-xs font-medium text-muted-foreground mb-3">
-            ANSWER
-          </p>
+        <CardContent className="border-b border-border bg-muted/30">
+          <div className="mb-3 flex items-center justify-between">
+            <Badge variant="default">Answer</Badge>
+          </div>
           {card.answer_content ? (
-            <CardContent
-              type={card.answer_type || "latex"}
-              content={card.answer_content}
-            />
+            <div className="rounded-md bg-background p-4">
+              <FlashcardContent
+                type={card.answer_type || "latex"}
+                content={card.answer_content}
+              />
+            </div>
           ) : (
             <p className="text-muted-foreground text-sm italic">
-              No answer provided — rate based on your own solution.
+              No answer provided - rate based on your own solution.
             </p>
           )}
-        </div>
+        </CardContent>
       ) : null}
 
-      {/* Actions */}
-      <div className="p-4 flex justify-center gap-4">
+      <CardFooter className="justify-center gap-4">
         {!showAnswer ? (
-          <button
-            onClick={onReveal}
-            className="px-8 py-3 bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90 transition-opacity"
-          >
+          <Button size="lg" onClick={onReveal}>
             Reveal Answer
-          </button>
+          </Button>
         ) : (
           <>
-            <button
-              onClick={() => onRate(false)}
-              className="px-8 py-3 bg-destructive text-destructive-foreground rounded-md font-medium hover:opacity-90 transition-opacity"
-            >
+            <Button variant="destructive" size="lg" onClick={() => onRate(false)}>
               Incorrect
-            </button>
-            <button
+            </Button>
+            <Button
+              size="lg"
               onClick={() => onRate(true)}
-              className="px-8 py-3 bg-success text-white rounded-md font-medium hover:opacity-90 transition-opacity"
+              className="bg-success text-white hover:bg-success/90"
             >
               Correct
-            </button>
+            </Button>
           </>
         )}
-      </div>
-    </div>
+      </CardFooter>
+    </Card>
   );
 }
 
-function CardContent({
+function FlashcardContent({
   type,
   content,
 }: {

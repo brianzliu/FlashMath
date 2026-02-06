@@ -38,6 +38,12 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return tauriInvoke<T>(cmd, args);
 }
 
+const LOCAL_LLM_KEY = "flashmath_llm_config_v1";
+
+function isBrowser(): boolean {
+  return typeof window !== "undefined";
+}
+
 // Capture
 export const startCapture = () => invoke<void>("start_capture");
 export const cropRegion = (
@@ -61,6 +67,22 @@ export const getImageAsDataUrl = (imagePath: string) =>
   invoke<string>("get_image_as_data_url", { imagePath });
 
 // Settings (LLM config stored via Rust/file system)
-export const getLLMConfig = () => invoke<LLMConfig>("get_llm_config");
-export const setLLMConfig = (config: LLMConfig) =>
-  invoke<void>("set_llm_config", { config });
+export const getLLMConfig = async () => {
+  try {
+    return await invoke<LLMConfig>("get_llm_config");
+  } catch (err) {
+    if (!isBrowser()) throw err;
+    const raw = window.localStorage.getItem(LOCAL_LLM_KEY);
+    if (!raw) throw err;
+    return JSON.parse(raw) as LLMConfig;
+  }
+};
+
+export const setLLMConfig = async (config: LLMConfig) => {
+  try {
+    await invoke<void>("set_llm_config", { config });
+  } catch (err) {
+    if (!isBrowser()) throw err;
+    window.localStorage.setItem(LOCAL_LLM_KEY, JSON.stringify(config));
+  }
+};

@@ -10,6 +10,45 @@ import type {
 import type Database from "@tauri-apps/plugin-sql";
 
 let dbInstance: Database | null = null;
+let dbMode: "sql" | "local" | null = null;
+const LOCAL_STORAGE_KEY = "flashmath_local_db_v1";
+
+interface LocalDb {
+  folders: Folder[];
+  flashcards: Flashcard[];
+  reviews: Review[];
+  settings: Record<string, string>;
+}
+
+function isBrowser(): boolean {
+  return typeof window !== "undefined";
+}
+
+function getLocalDb(): LocalDb {
+  if (!isBrowser()) {
+    return { folders: [], flashcards: [], reviews: [], settings: {} };
+  }
+  const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+  if (!raw) {
+    return { folders: [], flashcards: [], reviews: [], settings: {} };
+  }
+  try {
+    const parsed = JSON.parse(raw) as LocalDb;
+    return {
+      folders: parsed.folders ?? [],
+      flashcards: parsed.flashcards ?? [],
+      reviews: parsed.reviews ?? [],
+      settings: parsed.settings ?? {},
+    };
+  } catch {
+    return { folders: [], flashcards: [], reviews: [], settings: {} };
+  }
+}
+
+function saveLocalDb(db: LocalDb) {
+  if (!isBrowser()) return;
+  window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(db));
+}
 
 async function getDb(): Promise<Database> {
   if (dbInstance) return dbInstance;
@@ -18,8 +57,23 @@ async function getDb(): Promise<Database> {
   return dbInstance;
 }
 
+async function useLocalMode(): Promise<boolean> {
+  if (dbMode) return dbMode === "local";
+  try {
+    await getDb();
+    dbMode = "sql";
+    return false;
+  } catch {
+    dbMode = "local";
+    return true;
+  }
+}
+
 function generateId(): string {
-  return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 function nowISO(): string {
@@ -29,6 +83,13 @@ function nowISO(): string {
 // --- Folders ---
 
 export async function getFolders(): Promise<Folder[]> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    return [...localDb.folders].sort((a, b) => {
+      if (a.position !== b.position) return a.position - b.position;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+  }
   const db = await getDb();
   return db.select<Folder[]>(
     "SELECT * FROM folders ORDER BY position ASC, created_at ASC"
@@ -36,9 +97,23 @@ export async function getFolders(): Promise<Folder[]> {
 }
 
 export async function createFolder(name: string): Promise<Folder> {
-  const db = await getDb();
   const id = generateId();
   const now = nowISO();
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    const folder: Folder = {
+      id,
+      name,
+      position: 0,
+      deadline: null,
+      created_at: now,
+      updated_at: now,
+    };
+    localDb.folders.push(folder);
+    saveLocalDb(localDb);
+    return folder;
+  }
+  const db = await getDb();
   await db.execute(
     "INSERT INTO folders (id, name, position, created_at, updated_at) VALUES ($1, $2, 0, $3, $4)",
     [id, name, now, now]
@@ -51,6 +126,16 @@ export async function createFolder(name: string): Promise<Folder> {
 }
 
 export async function renameFolder(id: string, name: string): Promise<void> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.folders = localDb.folders.map((folder) =>
+      folder.id === id
+        ? { ...folder, name, updated_at: nowISO() }
+        : folder
+    );
+    saveLocalDb(localDb);
+    return;
+  }
   const db = await getDb();
   await db.execute(
     "UPDATE folders SET name = $1, updated_at = $2 WHERE id = $3",
@@ -59,6 +144,15 @@ export async function renameFolder(id: string, name: string): Promise<void> {
 }
 
 export async function deleteFolder(id: string): Promise<void> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.folders = localDb.folders.filter((folder) => folder.id !== id);
+    localDb.flashcards = localDb.flashcards.map((card) =>
+      card.folder_id === id ? { ...card, folder_id: null } : card
+    );
+    saveLocalDb(localDb);
+    return;
+  }
   const db = await getDb();
   await db.execute("DELETE FROM folders WHERE id = $1", [id]);
 }
@@ -67,6 +161,16 @@ export async function setFolderDeadline(
   id: string,
   deadline: string | null
 ): Promise<void> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.folders = localDb.folders.map((folder) =>
+      folder.id === id
+        ? { ...folder, deadline, updated_at: nowISO() }
+        : folder
+    );
+    saveLocalDb(localDb);
+    return;
+  }
   const db = await getDb();
   await db.execute(
     "UPDATE folders SET deadline = $1, updated_at = $2 WHERE id = $3",
@@ -77,6 +181,16 @@ export async function setFolderDeadline(
 // --- Flashcards ---
 
 export async function getFlashcards(folderId?: string): Promise<Flashcard[]> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    const cards = folderId
+      ? localDb.flashcards.filter((card) => card.folder_id === folderId)
+      : localDb.flashcards;
+    return [...cards].sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }
   const db = await getDb();
   if (folderId) {
     return db.select<Flashcard[]>(
@@ -90,6 +204,12 @@ export async function getFlashcards(folderId?: string): Promise<Flashcard[]> {
 }
 
 export async function getFlashcard(id: string): Promise<Flashcard> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    const card = localDb.flashcards.find((item) => item.id === id);
+    if (!card) throw new Error("Flashcard not found");
+    return card;
+  }
   const db = await getDb();
   const rows = await db.select<Flashcard[]>(
     "SELECT * FROM flashcards WHERE id = $1",
@@ -102,12 +222,35 @@ export async function getFlashcard(id: string): Promise<Flashcard> {
 export async function createFlashcard(
   data: CreateFlashcardInput
 ): Promise<Flashcard> {
-  const db = await getDb();
   const id = generateId();
   const now = nowISO();
   const timerMode = data.timer_mode || "5min";
   const timerSeconds = data.timer_seconds || 300;
 
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    const card: Flashcard = {
+      id,
+      folder_id: data.folder_id || null,
+      question_type: data.question_type,
+      question_content: data.question_content,
+      answer_type: data.answer_type ?? null,
+      answer_content: data.answer_content ?? null,
+      timer_mode: timerMode,
+      timer_seconds: timerSeconds,
+      ease_factor: 2.5,
+      interval_days: 0,
+      repetitions: 0,
+      due_date: now,
+      last_reviewed: null,
+      created_at: now,
+      updated_at: now,
+    };
+    localDb.flashcards.push(card);
+    saveLocalDb(localDb);
+    return card;
+  }
+  const db = await getDb();
   await db.execute(
     `INSERT INTO flashcards
       (id, folder_id, question_type, question_content, answer_type, answer_content,
@@ -140,6 +283,26 @@ export async function updateFlashcard(
   id: string,
   data: UpdateFlashcardInput
 ): Promise<void> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.flashcards = localDb.flashcards.map((card) =>
+      card.id === id
+        ? {
+            ...card,
+            ...data,
+            answer_type:
+              data.answer_type !== undefined ? data.answer_type : card.answer_type,
+            answer_content:
+              data.answer_content !== undefined
+                ? data.answer_content
+                : card.answer_content,
+            updated_at: nowISO(),
+          }
+        : card
+    );
+    saveLocalDb(localDb);
+    return;
+  }
   const db = await getDb();
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -187,6 +350,15 @@ export async function updateFlashcard(
 }
 
 export async function deleteFlashcard(id: string): Promise<void> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.flashcards = localDb.flashcards.filter((card) => card.id !== id);
+    localDb.reviews = localDb.reviews.filter(
+      (review) => review.flashcard_id !== id
+    );
+    saveLocalDb(localDb);
+    return;
+  }
   const db = await getDb();
   await db.execute("DELETE FROM flashcards WHERE id = $1", [id]);
 }
@@ -195,6 +367,16 @@ export async function moveFlashcard(
   id: string,
   folderId: string
 ): Promise<void> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.flashcards = localDb.flashcards.map((card) =>
+      card.id === id
+        ? { ...card, folder_id: folderId, updated_at: nowISO() }
+        : card
+    );
+    saveLocalDb(localDb);
+    return;
+  }
   const db = await getDb();
   await db.execute(
     "UPDATE flashcards SET folder_id = $1, updated_at = $2 WHERE id = $3",
@@ -205,8 +387,21 @@ export async function moveFlashcard(
 export async function getDueFlashcards(
   folderId?: string
 ): Promise<Flashcard[]> {
-  const db = await getDb();
   const now = nowISO();
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    const cards = folderId
+      ? localDb.flashcards.filter((card) => card.folder_id === folderId)
+      : localDb.flashcards;
+    return cards
+      .filter((card) => !card.due_date || card.due_date <= now)
+      .sort((a, b) => {
+        const dueA = a.due_date ? new Date(a.due_date).getTime() : 0;
+        const dueB = b.due_date ? new Date(b.due_date).getTime() : 0;
+        return dueA - dueB;
+      });
+  }
+  const db = await getDb();
   if (folderId) {
     return db.select<Flashcard[]>(
       `SELECT * FROM flashcards
@@ -236,24 +431,33 @@ export async function submitReview(
   interval_days: number;
   due_date: string;
 }> {
-  const db = await getDb();
-
-  // Load current card state
-  const cards = await db.select<Flashcard[]>(
-    "SELECT * FROM flashcards WHERE id = $1",
-    [flashcardId]
-  );
-  if (cards.length === 0) throw new Error("Flashcard not found");
-  const card = cards[0];
-
-  // Load folder deadline if applicable
+  let card: Flashcard;
   let deadline: string | null = null;
-  if (card.folder_id) {
-    const folders = await db.select<Folder[]>(
-      "SELECT deadline FROM folders WHERE id = $1",
-      [card.folder_id]
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    const found = localDb.flashcards.find((item) => item.id === flashcardId);
+    if (!found) throw new Error("Flashcard not found");
+    card = found;
+    if (card.folder_id) {
+      deadline =
+        localDb.folders.find((folder) => folder.id === card.folder_id)
+          ?.deadline || null;
+    }
+  } else {
+    const db = await getDb();
+    const cards = await db.select<Flashcard[]>(
+      "SELECT * FROM flashcards WHERE id = $1",
+      [flashcardId]
     );
-    if (folders.length > 0) deadline = folders[0].deadline;
+    if (cards.length === 0) throw new Error("Flashcard not found");
+    card = cards[0];
+    if (card.folder_id) {
+      const folders = await db.select<Folder[]>(
+        "SELECT deadline FROM folders WHERE id = $1",
+        [card.folder_id]
+      );
+      if (folders.length > 0) deadline = folders[0].deadline;
+    }
   }
 
   // Calculate SRS
@@ -308,37 +512,67 @@ export async function submitReview(
   ).toISOString();
   const now = nowISO();
 
-  // Update flashcard
-  await db.execute(
-    `UPDATE flashcards SET
-      ease_factor = $1, interval_days = $2, repetitions = $3,
-      due_date = $4, last_reviewed = $5, updated_at = $6
-     WHERE id = $7`,
-    [easeFactor, intervalDays, repetitions, dueDate, now, now, flashcardId]
-  );
-
-  // Insert review record
-  const reviewId = generateId();
-  await db.execute(
-    `INSERT INTO reviews
-      (id, flashcard_id, correct, response_time_seconds, timer_limit_seconds,
-       speed_ratio, quality, ease_before, ease_after, interval_before, interval_after, reviewed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-    [
-      reviewId,
-      flashcardId,
-      correct ? 1 : 0,
-      responseTimeSeconds,
-      card.timer_seconds,
-      speedRatio,
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.flashcards = localDb.flashcards.map((item) =>
+      item.id === flashcardId
+        ? {
+            ...item,
+            ease_factor: easeFactor,
+            interval_days: intervalDays,
+            repetitions,
+            due_date: dueDate,
+            last_reviewed: now,
+            updated_at: now,
+          }
+        : item
+    );
+    localDb.reviews.push({
+      id: generateId(),
+      flashcard_id: flashcardId,
+      correct,
+      response_time_seconds: responseTimeSeconds,
+      timer_limit_seconds: card.timer_seconds,
+      speed_ratio: speedRatio,
       quality,
-      card.ease_factor,
-      easeFactor,
-      card.interval_days,
-      intervalDays,
-      now,
-    ]
-  );
+      ease_before: card.ease_factor,
+      ease_after: easeFactor,
+      interval_before: card.interval_days,
+      interval_after: intervalDays,
+      reviewed_at: now,
+    });
+    saveLocalDb(localDb);
+  } else {
+    const db = await getDb();
+    await db.execute(
+      `UPDATE flashcards SET
+        ease_factor = $1, interval_days = $2, repetitions = $3,
+        due_date = $4, last_reviewed = $5, updated_at = $6
+       WHERE id = $7`,
+      [easeFactor, intervalDays, repetitions, dueDate, now, now, flashcardId]
+    );
+    const reviewId = generateId();
+    await db.execute(
+      `INSERT INTO reviews
+        (id, flashcard_id, correct, response_time_seconds, timer_limit_seconds,
+         speed_ratio, quality, ease_before, ease_after, interval_before, interval_after, reviewed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        reviewId,
+        flashcardId,
+        correct ? 1 : 0,
+        responseTimeSeconds,
+        card.timer_seconds,
+        speedRatio,
+        quality,
+        card.ease_factor,
+        easeFactor,
+        card.interval_days,
+        intervalDays,
+        now,
+      ]
+    );
+  }
 
   return {
     quality,
@@ -363,6 +597,15 @@ function nextInterval(
 export async function getReviewHistory(
   flashcardId: string
 ): Promise<Review[]> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    return localDb.reviews
+      .filter((review) => review.flashcard_id === flashcardId)
+      .sort(
+        (a, b) =>
+          new Date(b.reviewed_at).getTime() - new Date(a.reviewed_at).getTime()
+      );
+  }
   const db = await getDb();
   return db.select<Review[]>(
     "SELECT * FROM reviews WHERE flashcard_id = $1 ORDER BY reviewed_at DESC",
@@ -371,12 +614,36 @@ export async function getReviewHistory(
 }
 
 export async function getStudyStats(folderId?: string): Promise<StudyStats> {
-  const db = await getDb();
   const now = nowISO();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayISO = todayStart.toISOString();
 
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    const cards = folderId
+      ? localDb.flashcards.filter((card) => card.folder_id === folderId)
+      : localDb.flashcards;
+    const totalCards = cards.length;
+    const dueToday = cards.filter(
+      (card) => !card.due_date || card.due_date <= now
+    ).length;
+    const reviewedToday = localDb.reviews.filter(
+      (review) => review.reviewed_at >= todayISO
+    ).length;
+    const correctToday = localDb.reviews.filter(
+      (review) => review.reviewed_at >= todayISO && review.correct
+    ).length;
+    return {
+      total_cards: totalCards,
+      due_today: dueToday,
+      overdue: dueToday,
+      reviewed_today: reviewedToday,
+      accuracy_today: reviewedToday > 0 ? correctToday / reviewedToday : 0,
+    };
+  }
+
+  const db = await getDb();
   let totalCards: number;
   let dueToday: number;
 

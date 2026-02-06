@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FlashcardEditor } from "@/components/FlashcardEditor";
 import type { Flashcard, CreateFlashcardInput } from "@/lib/types";
 import * as commands from "@/lib/commands";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function CardPageContent() {
   const router = useRouter();
@@ -55,30 +56,32 @@ function CardPageContent() {
     return <p className="text-muted-foreground">Card not found.</p>;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">
-        {isEditing ? "Edit Flashcard" : "New Flashcard"}
-      </h1>
-      <FlashcardEditor
-        initialData={
-          card
-            ? {
-                folder_id: card.folder_id,
-                question_type: card.question_type,
-                question_content: card.question_content,
-                answer_type: card.answer_type,
-                answer_content: card.answer_content,
-                timer_mode: card.timer_mode,
-                timer_seconds: card.timer_seconds,
-              }
-            : folderId
-            ? { folder_id: folderId }
-            : undefined
-        }
-        onSave={handleSave}
-        saving={saving}
-      />
-    </div>
+    <Card className="max-w-3xl">
+      <CardHeader>
+        <CardTitle>{isEditing ? "Edit Flashcard" : "New Flashcard"}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <FlashcardEditor
+          initialData={
+            card
+              ? {
+                  folder_id: card.folder_id,
+                  question_type: card.question_type,
+                  question_content: card.question_content,
+                  answer_type: card.answer_type,
+                  answer_content: card.answer_content,
+                  timer_mode: card.timer_mode,
+                  timer_seconds: card.timer_seconds,
+                }
+              : folderId
+              ? { folder_id: folderId }
+              : undefined
+          }
+          onSave={handleSave}
+          saving={saving}
+        />
+      </CardContent>
+    </Card>
   );
 }
 

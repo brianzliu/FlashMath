@@ -38,9 +38,7 @@
   },
   "plugins": {
     "sql": {
-      "preload": {
-        "db": "sqlite:flashmath.db"
-      }
+      "preload": ["sqlite:flashmath.db"]
     }
   }
 }

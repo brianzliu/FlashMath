@@ -8,6 +8,7 @@ import { Timer } from "@/components/Timer";
 import { StudyCard } from "@/components/StudyCard";
 import { SessionSummary } from "@/components/SessionSummary";
 import type { Flashcard, ReviewResult } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 
 type SessionState = "loading" | "studying" | "revealing" | "summary";
 
@@ -119,14 +120,25 @@ function StudyPageContent() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-lg font-bold">
-          Studying: {folder?.name || "All Cards"}
-        </h1>
-        <span className="text-sm text-muted-foreground">
-          {currentIndex + 1} / {dueCards.length}
-        </span>
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold">
+            Studying: {folder?.name || "All Cards"}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {currentIndex + 1} / {dueCards.length} cards
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setState("summary");
+            setTimerRunning(false);
+          }}
+        >
+          End session
+        </Button>
       </div>
 
       <Timer
@@ -142,17 +154,6 @@ function StudyPageContent() {
         onRate={handleRate}
       />
 
-      <div className="mt-4 text-center">
-        <button
-          onClick={() => {
-            setState("summary");
-            setTimerRunning(false);
-          }}
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
-          End session early
-        </button>
-      </div>
     </div>
   );
 }

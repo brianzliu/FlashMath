@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { AnnotationCanvas, type Region } from "@/components/AnnotationCanvas";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 export default function ImportPdfPage() {
   const router = useRouter();
@@ -134,7 +137,7 @@ export default function ImportPdfPage() {
         }
       }
 
-      router.push(selectedFolder ? `/folder/${selectedFolder}` : "/");
+      router.push(selectedFolder ? `/folder?id=${selectedFolder}` : "/");
     } catch (err) {
       console.error("Failed to create flashcards:", err);
     } finally {
@@ -143,110 +146,115 @@ export default function ImportPdfPage() {
   };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Import from PDF</h1>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Import from PDF</h1>
+        <p className="text-sm text-muted-foreground">
+          Segment questions and answers directly from PDF pages.
+        </p>
+      </div>
 
       {!pdfPath ? (
-        <div className="border-2 border-dashed border-border rounded-lg p-12 text-center">
-          <p className="text-muted-foreground mb-4">
-            Select a PDF file to import flashcards from. You can draw rectangles
-            around questions and answers on each page.
-          </p>
-          <button
-            onClick={handleOpenFile}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-md font-medium"
-          >
-            Open PDF
-          </button>
-        </div>
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
+            <p className="text-muted-foreground">
+              Select a PDF file to import flashcards from.
+            </p>
+            <Button onClick={handleOpenFile}>Open PDF</Button>
+          </CardContent>
+        </Card>
       ) : loading ? (
         <p className="text-muted-foreground">Loading PDF...</p>
       ) : pageImages.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground mb-4">
-            PDF rendering requires additional setup. For now, you can convert
-            your PDF pages to images and use the Image Import instead.
-          </p>
-          <button
-            onClick={() => router.push("/import/image")}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-md font-medium"
-          >
-            Go to Image Import
-          </button>
-        </div>
+        <Card>
+          <CardContent className="space-y-4 py-10 text-center">
+            <p className="text-muted-foreground">
+              PDF rendering needs a native pipeline. Convert your PDF pages to
+              images and use Image Import for now.
+            </p>
+            <Button onClick={() => router.push("/import/image")}>
+              Go to Image Import
+            </Button>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-4">
-          {/* Page navigation */}
           <div className="flex items-center gap-4">
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
               disabled={currentPage === 0}
-              className="px-3 py-1 bg-secondary text-secondary-foreground rounded-md text-sm disabled:opacity-50"
             >
               Prev
-            </button>
+            </Button>
             <span className="text-sm">
               Page {currentPage + 1} of {pageImages.length}
             </span>
-            <button
+            <Button
+              variant="secondary"
               onClick={() =>
                 setCurrentPage((p) => Math.min(pageImages.length - 1, p + 1))
               }
               disabled={currentPage === pageImages.length - 1}
-              className="px-3 py-1 bg-secondary text-secondary-foreground rounded-md text-sm disabled:opacity-50"
             >
               Next
-            </button>
+            </Button>
           </div>
 
-          {/* Annotation */}
           <AnnotationCanvas
             imageUrl={pageImages[currentPage]}
             onRegionsChange={handleRegionsChange}
           />
 
-          {/* Controls */}
-          <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-            <div>
-              <label className="block text-sm font-medium mb-1">Folder</label>
-              <select
-                value={selectedFolder}
-                onChange={(e) => setSelectedFolder(e.target.value)}
-                className="px-3 py-1.5 border border-border rounded-md bg-background text-sm"
-              >
-                <option value="">No folder</option>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Card creation</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Folder</label>
+                <select
+                  value={selectedFolder}
+                  onChange={(e) => setSelectedFolder(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">No folder</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useOcr}
-                onChange={(e) => setUseOcr(e.target.checked)}
-                className="rounded"
-              />
-              OCR to LaTeX
-            </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useOcr}
+                  onChange={(e) => setUseOcr(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                OCR to LaTeX
+              </label>
 
-            <div className="ml-auto">
-              <button
-                onClick={handleCreateCards}
-                disabled={creating || allQuestionRegions.length === 0}
-                className="px-6 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50"
-              >
-                {creating
-                  ? "Creating..."
-                  : `Create ${allQuestionRegions.length} Card${
-                      allQuestionRegions.length !== 1 ? "s" : ""
-                    }`}
-              </button>
-            </div>
-          </div>
+              <div className="ml-auto flex items-center gap-3">
+                <Badge variant="secondary">
+                  {allQuestionRegions.length} question
+                  {allQuestionRegions.length !== 1 ? "s" : ""}
+                </Badge>
+                <Button
+                  onClick={handleCreateCards}
+                  disabled={creating || allQuestionRegions.length === 0}
+                >
+                  {creating
+                    ? "Creating..."
+                    : `Create ${allQuestionRegions.length} Card${
+                        allQuestionRegions.length !== 1 ? "s" : ""
+                      }`}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
