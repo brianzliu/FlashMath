@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnnotationCanvas, type Region } from "@/components/AnnotationCanvas";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
@@ -11,20 +11,31 @@ import { Badge } from "@/components/ui/badge";
 
 export default function ImportPdfPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const folderId = searchParams.get("folderId") || "";
   const { folders } = useAppStore();
   const [pdfPath, setPdfPath] = useState<string | null>(null);
   const [pageImages, setPageImages] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [regions, setRegions] = useState<Map<number, Region[]>>(new Map());
-  const [selectedFolder, setSelectedFolder] = useState<string>("");
   const [creating, setCreating] = useState(false);
   const [useOcr, setUseOcr] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const folderName = useMemo(
+    () => folders.find((f) => f.id === folderId)?.name || "",
+    [folders, folderId]
+  );
+
+  const handlePdfDrop = useCallback((file: File) => {
+    // Placeholder until native PDF rendering is wired up.
+    setPdfPath(file.name);
+  }, []);
+
   const handleOpenFile = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const path = await open({
+      const result = await open({
         multiple: false,
         directory: false,
         filters: [
@@ -35,6 +46,7 @@ export default function ImportPdfPage() {
         ],
       });
 
+      const path = Array.isArray(result) ? result[0] : result;
       if (path) {
         setPdfPath(path as string);
         setLoading(true);
@@ -64,7 +76,7 @@ export default function ImportPdfPage() {
     .filter((r) => r.role === "question");
 
   const handleCreateCards = async () => {
-    if (allQuestionRegions.length === 0) return;
+    if (!folderId || allQuestionRegions.length === 0) return;
     setCreating(true);
 
     try {
@@ -128,7 +140,7 @@ export default function ImportPdfPage() {
           }
 
           await commands.createFlashcard({
-            folder_id: selectedFolder || null,
+            folder_id: folderId,
             question_type: qType,
             question_content: qContent,
             answer_type: aType,
@@ -137,13 +149,34 @@ export default function ImportPdfPage() {
         }
       }
 
-      router.push(selectedFolder ? `/folder?id=${selectedFolder}` : "/");
+      router.push(`/folder?id=${folderId}`);
     } catch (err) {
       console.error("Failed to create flashcards:", err);
     } finally {
       setCreating(false);
     }
   };
+
+  if (!folderId) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Import from PDF</h1>
+          <p className="text-sm text-muted-foreground">
+            Select a folder to import PDFs into.
+          </p>
+        </div>
+        <Card>
+          <CardContent className="space-y-4 py-10 text-center">
+            <p className="text-muted-foreground">
+              Import is only available inside a folder.
+            </p>
+            <Button onClick={() => router.push("/")}>Back to Dashboard</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -154,13 +187,35 @@ export default function ImportPdfPage() {
         </p>
       </div>
 
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-2 py-4">
+          <Badge variant="secondary">Target folder</Badge>
+          <span className="text-sm font-medium">
+            {folderName || "Untitled"}
+          </span>
+        </CardContent>
+      </Card>
+
       {!pdfPath ? (
-        <Card className="border-dashed">
+        <Card
+          className="border-dashed"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files?.[0];
+            if (file) {
+              handlePdfDrop(file);
+            }
+          }}
+        >
           <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
             <p className="text-muted-foreground">
               Select a PDF file to import flashcards from.
             </p>
             <Button onClick={handleOpenFile}>Open PDF</Button>
+            <div className="text-xs text-muted-foreground">
+              or drag and drop a PDF here
+            </div>
           </CardContent>
         </Card>
       ) : loading ? (
@@ -172,7 +227,7 @@ export default function ImportPdfPage() {
               PDF rendering needs a native pipeline. Convert your PDF pages to
               images and use Image Import for now.
             </p>
-            <Button onClick={() => router.push("/import/image")}>
+            <Button onClick={() => router.push(`/import/image?folderId=${folderId}`)}>
               Go to Image Import
             </Button>
           </CardContent>
@@ -211,22 +266,6 @@ export default function ImportPdfPage() {
               <CardTitle>Card creation</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-wrap items-center gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Folder</label>
-                <select
-                  value={selectedFolder}
-                  onChange={(e) => setSelectedFolder(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">No folder</option>
-                  {folders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
@@ -244,7 +283,7 @@ export default function ImportPdfPage() {
                 </Badge>
                 <Button
                   onClick={handleCreateCards}
-                  disabled={creating || allQuestionRegions.length === 0}
+                  disabled={creating || allQuestionRegions.length === 0 || !folderId}
                 >
                   {creating
                     ? "Creating..."

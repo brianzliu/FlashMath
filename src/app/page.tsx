@@ -44,9 +44,6 @@ export default function Dashboard() {
           <Button variant="secondary" asChild>
             <Link href="/study">Study All</Link>
           </Button>
-          <Button asChild>
-            <Link href="/import/pdf">Import Source</Link>
-          </Button>
         </div>
       </div>
 

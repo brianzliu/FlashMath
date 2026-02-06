@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnnotationCanvas, type Region } from "@/components/AnnotationCanvas";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
@@ -11,18 +11,36 @@ import { Badge } from "@/components/ui/badge";
 
 export default function ImportImagePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const folderId = searchParams.get("folderId") || "";
   const { folders } = useAppStore();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [regions, setRegions] = useState<Region[]>([]);
-  const [selectedFolder, setSelectedFolder] = useState<string>("");
   const [creating, setCreating] = useState(false);
   const [useOcr, setUseOcr] = useState(false);
+
+  const folderName = useMemo(
+    () => folders.find((f) => f.id === folderId)?.name || "",
+    [folders, folderId]
+  );
+
+  const handleFileBlob = useCallback(async (file: File) => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
+    const savedPath = await commands.saveImageFromDataUrl(dataUrl);
+    setImagePath(savedPath);
+    setImageUrl(dataUrl);
+  }, []);
 
   const handleOpenFile = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const path = await open({
+      const result = await open({
         multiple: false,
         directory: false,
         filters: [
@@ -33,16 +51,12 @@ export default function ImportImagePage() {
         ],
       });
 
+      const path = Array.isArray(result) ? result[0] : result;
       if (path) {
         const pathStr = path as string;
         setImagePath(pathStr);
-        // Load the image as data URL for display
-        // Use Tauri to read the file
-        const { readFile } = await import("@tauri-apps/plugin-fs");
-        const contents = await readFile(pathStr);
-        const blob = new Blob([contents]);
-        const url = URL.createObjectURL(blob);
-        setImageUrl(url);
+        const dataUrl = await commands.getImageAsDataUrl(pathStr);
+        setImageUrl(dataUrl);
       }
     } catch (err) {
       console.error("Failed to open file:", err);
@@ -54,7 +68,7 @@ export default function ImportImagePage() {
   }, []);
 
   const handleCreateCards = async () => {
-    if (!imagePath || regions.length === 0) return;
+    if (!folderId || !imagePath || regions.length === 0) return;
     setCreating(true);
 
     try {
@@ -116,7 +130,7 @@ export default function ImportImagePage() {
         }
 
         await commands.createFlashcard({
-          folder_id: selectedFolder || null,
+          folder_id: folderId,
           question_type: qType,
           question_content: qContent,
           answer_type: aType,
@@ -124,7 +138,7 @@ export default function ImportImagePage() {
         });
       }
 
-      router.push(selectedFolder ? `/folder?id=${selectedFolder}` : "/");
+      router.push(`/folder?id=${folderId}`);
     } catch (err) {
       console.error("Failed to create flashcards:", err);
     } finally {
@@ -133,6 +147,27 @@ export default function ImportImagePage() {
   };
 
   const questionCount = regions.filter((r) => r.role === "question").length;
+
+  if (!folderId) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Import from Image</h1>
+          <p className="text-sm text-muted-foreground">
+            Select a folder to import images into.
+          </p>
+        </div>
+        <Card>
+          <CardContent className="space-y-4 py-10 text-center">
+            <p className="text-muted-foreground">
+              Import is only available inside a folder.
+            </p>
+            <Button onClick={() => router.push("/")}>Back to Dashboard</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -143,13 +178,35 @@ export default function ImportImagePage() {
         </p>
       </div>
 
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-2 py-4">
+          <Badge variant="secondary">Target folder</Badge>
+          <span className="text-sm font-medium">
+            {folderName || "Untitled"}
+          </span>
+        </CardContent>
+      </Card>
+
       {!imageUrl ? (
-        <Card className="border-dashed">
+        <Card
+          className="border-dashed"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files?.[0];
+            if (file) {
+              void handleFileBlob(file);
+            }
+          }}
+        >
           <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
             <p className="text-muted-foreground">
               Select an image file to import flashcards from.
             </p>
             <Button onClick={handleOpenFile}>Open Image</Button>
+            <div className="text-xs text-muted-foreground">
+              or drag and drop an image file here
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -174,22 +231,6 @@ export default function ImportImagePage() {
               <CardTitle>Card creation</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-wrap items-center gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Folder</label>
-                <select
-                  value={selectedFolder}
-                  onChange={(e) => setSelectedFolder(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">No folder</option>
-                  {folders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
@@ -206,7 +247,7 @@ export default function ImportImagePage() {
                 </Badge>
                 <Button
                   onClick={handleCreateCards}
-                  disabled={creating || questionCount === 0}
+                  disabled={creating || questionCount === 0 || !folderId}
                 >
                   {creating
                     ? "Creating..."

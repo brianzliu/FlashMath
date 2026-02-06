@@ -116,6 +116,14 @@ function FolderPageContent() {
               <Button variant="secondary" asChild>
                 <Link href={`/card?folderId=${folderId}`}>New card</Link>
               </Button>
+              <Button variant="outline" asChild>
+                <Link href={`/import/pdf?folderId=${folderId}`}>Import PDF</Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href={`/import/image?folderId=${folderId}`}>
+                  Import Image
+                </Link>
+              </Button>
             </div>
           </div>
           {folder.deadline && (

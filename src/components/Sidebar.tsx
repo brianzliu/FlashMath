@@ -13,8 +13,6 @@ import {
   FolderPlus,
   Folder as FolderIcon,
   Trash2,
-  ImagePlus,
-  FileDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -196,20 +194,9 @@ export function Sidebar() {
 
       <div className="mt-auto px-3 pb-4">
         <Separator className="mb-3" />
-        <Link
-          href="/import/pdf"
-          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-        >
-          <FileDown className="h-4 w-4" />
-          Import PDF
-        </Link>
-        <Link
-          href="/import/image"
-          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-        >
-          <ImagePlus className="h-4 w-4" />
-          Import Image
-        </Link>
+        <p className="px-3 text-xs text-muted-foreground">
+          Import is available inside each folder.
+        </p>
       </div>
     </aside>
   );
