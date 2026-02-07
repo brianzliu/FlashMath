@@ -1,5 +1,3 @@
-"use client";
-
 import { cn } from "@/lib/utils";
 import { useTimer } from "@/hooks/useTimer";
 import { formatTime } from "@/lib/utils";
@@ -45,18 +43,28 @@ export function Timer({
 
   return (
     <div className={cn("space-y-2", className)}>
-      <div className={cn("text-3xl font-mono font-bold text-center", timerColor)}>
+      <div
+        className={cn(
+          "text-3xl font-mono font-bold text-center tabular-nums",
+          timerColor
+        )}
+      >
         {isOvertime ? "+" : ""}
         {formatTime(isOvertime ? elapsed - totalSeconds : timeRemaining)}
       </div>
-      <div className="w-full h-2 bg-border rounded-full overflow-hidden">
+      <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
         <div
-          className={cn("h-full rounded-full transition-all duration-1000", barColor)}
+          className={cn(
+            "h-full rounded-full transition-all duration-1000",
+            barColor
+          )}
           style={{ width: `${isOvertime ? 0 : percent}%` }}
         />
       </div>
       {isOvertime && (
-        <p className="text-xs text-center text-timer-red">Over time!</p>
+        <p className="text-xs text-center text-timer-red font-medium">
+          Over time!
+        </p>
       )}
     </div>
   );

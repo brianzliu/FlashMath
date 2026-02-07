@@ -1,3 +1,4 @@
+use base64::Engine;
 use image::GenericImageView;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -60,6 +61,56 @@ pub async fn save_image_from_data_url(
         .map_err(|e| format!("Failed to write image: {}", e))?;
 
     Ok(output_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn take_screenshot(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    // Hide the app window so user can capture what's behind it
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+
+    // Small delay to let the window hide
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+    let captures_dir = get_captures_dir(&app)?;
+    let filename = format!("{}.png", Uuid::new_v4());
+    let output_path = captures_dir.join(&filename);
+
+    // Run macOS screencapture (interactive selection, no sound)
+    let status = std::process::Command::new("screencapture")
+        .arg("-i")  // interactive (user selects region)
+        .arg("-x")  // no sound
+        .arg(output_path.to_string_lossy().to_string())
+        .status()
+        .map_err(|e| format!("Failed to run screencapture: {}", e))?;
+
+    // Show the window again
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+
+    if !status.success() {
+        // User cancelled the capture (pressed Escape)
+        return Ok(None);
+    }
+
+    // Verify file exists
+    if !output_path.exists() {
+        return Ok(None);
+    }
+
+    // Read the file and return as data URL
+    let bytes = tokio::fs::read(&output_path)
+        .await
+        .map_err(|e| format!("Failed to read screenshot: {}", e))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let data_url = format!("data:image/png;base64,{}", b64);
+
+    Ok(Some(data_url))
 }
 
 fn get_captures_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {

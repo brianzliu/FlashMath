@@ -14,7 +14,14 @@
       "Bash(npm run build:*)",
       "Bash(cargo test:*)",
       "Bash(cargo tauri build:*)",
-      "Bash(cargo tauri dev:*)"
+      "Bash(cargo tauri dev:*)",
+      "Bash(ls:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(python3:*)",
+      "Bash(git status:*)",
+      "Bash(git add:*)"
     ]
   }
 }

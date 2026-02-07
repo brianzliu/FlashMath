@@ -104,6 +104,7 @@ export async function createFolder(name: string): Promise<Folder> {
     const folder: Folder = {
       id,
       name,
+      emoji: null,
       position: 0,
       deadline: null,
       created_at: now,
@@ -155,6 +156,27 @@ export async function deleteFolder(id: string): Promise<void> {
   }
   const db = await getDb();
   await db.execute("DELETE FROM folders WHERE id = $1", [id]);
+}
+
+export async function setFolderEmoji(
+  id: string,
+  emoji: string | null
+): Promise<void> {
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.folders = localDb.folders.map((folder) =>
+      folder.id === id
+        ? { ...folder, emoji, updated_at: nowISO() }
+        : folder
+    );
+    saveLocalDb(localDb);
+    return;
+  }
+  const db = await getDb();
+  await db.execute(
+    "UPDATE folders SET emoji = $1, updated_at = $2 WHERE id = $3",
+    [emoji, nowISO(), id]
+  );
 }
 
 export async function setFolderDeadline(

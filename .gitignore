@@ -8,9 +8,12 @@
 !.yarn/releases
 !.yarn/versions
 
-# next.js
+# next.js (legacy)
 /.next/
 /out/
+
+# vite build output
+/dist
 
 # production
 /build

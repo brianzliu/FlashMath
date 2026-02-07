@@ -10,6 +10,7 @@ export {
   createFolder,
   renameFolder,
   deleteFolder,
+  setFolderEmoji,
   setFolderDeadline,
   getFlashcards,
   getFlashcard,
@@ -45,7 +46,7 @@ function isBrowser(): boolean {
 }
 
 // Capture
-export const startCapture = () => invoke<void>("start_capture");
+export const takeScreenshot = () => invoke<string | null>("take_screenshot");
 export const cropRegion = (
   imagePath: string,
   x: number,

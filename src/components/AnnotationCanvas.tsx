@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef, useCallback, useEffect } from "react";
 import { cn, generateId } from "@/lib/utils";
 
@@ -25,6 +23,7 @@ export function AnnotationCanvas({
 }: AnnotationCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [regions, setRegions] = useState<Region[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [currentPos, setCurrentPos] = useState({ x: 0, y: 0 });
@@ -57,10 +56,12 @@ export function AnnotationCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // If clicking on the canvas background (not a region), deselect and start drawing
       const pos = getRelativePos(e);
       setStartPos(pos);
       setCurrentPos(pos);
       setDrawing(true);
+      setSelectedId(null);
     },
     [getRelativePos]
   );
@@ -82,10 +83,8 @@ export function AnnotationCanvas({
     const width = Math.abs(currentPos.x - startPos.x);
     const height = Math.abs(currentPos.y - startPos.y);
 
-    // Ignore tiny selections
     if (width < 10 || height < 10) return;
 
-    // Scale to natural image dimensions
     const scaleX = imgDimensions.naturalWidth / imgDimensions.width;
     const scaleY = imgDimensions.naturalHeight / imgDimensions.height;
 
@@ -99,17 +98,49 @@ export function AnnotationCanvas({
     };
 
     updateRegions([...regions, region]);
+    setSelectedId(region.id);
   }, [drawing, startPos, currentPos, regions, imgDimensions, updateRegions]);
 
-  const setRegionRole = (id: string, role: "question" | "answer") => {
-    updateRegions(
-      regions.map((r) => (r.id === id ? { ...r, role } : r))
-    );
-  };
+  const setRegionRole = useCallback(
+    (id: string, role: "question" | "answer") => {
+      updateRegions(
+        regions.map((r) => (r.id === id ? { ...r, role } : r))
+      );
+    },
+    [regions, updateRegions]
+  );
 
-  const removeRegion = (id: string) => {
-    updateRegions(regions.filter((r) => r.id !== id));
-  };
+  const removeRegion = useCallback(
+    (id: string) => {
+      updateRegions(regions.filter((r) => r.id !== id));
+      if (selectedId === id) setSelectedId(null);
+    },
+    [regions, updateRegions, selectedId]
+  );
+
+  // Keyboard shortcuts: Q, A, Delete/Backspace
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedId) return;
+      // Don't capture when typing in inputs
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.key === "q" || e.key === "Q") {
+        e.preventDefault();
+        setRegionRole(selectedId, "question");
+      } else if (e.key === "a" || e.key === "A") {
+        e.preventDefault();
+        setRegionRole(selectedId, "answer");
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        removeRegion(selectedId);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedId, setRegionRole, removeRegion]);
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -121,7 +152,6 @@ export function AnnotationCanvas({
     });
   };
 
-  // Scale region coordinates back to display dimensions
   const scaleRegionToDisplay = (region: Region) => {
     if (imgDimensions.width === 0) return region;
     const scaleX = imgDimensions.width / imgDimensions.naturalWidth;
@@ -137,6 +167,17 @@ export function AnnotationCanvas({
 
   return (
     <div className={cn("relative inline-block", className)}>
+      {selectedId && (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Region selected &mdash;</span>
+          <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">Q</kbd>
+          <span>question</span>
+          <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">A</kbd>
+          <span>answer</span>
+          <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">Del</kbd>
+          <span>remove</span>
+        </div>
+      )}
       <div
         ref={containerRef}
         className="relative cursor-crosshair select-none"
@@ -169,22 +210,30 @@ export function AnnotationCanvas({
         {/* Existing regions */}
         {regions.map((region) => {
           const display = scaleRegionToDisplay(region);
+          const isSelected = region.id === selectedId;
           return (
             <div
               key={region.id}
               className={cn(
-                "absolute border-2 pointer-events-none",
+                "absolute border-2 transition-shadow",
                 region.role === "question"
                   ? "border-primary bg-primary/10"
                   : region.role === "answer"
                   ? "border-success bg-success/10"
-                  : "border-warning bg-warning/10"
+                  : "border-warning bg-warning/10",
+                isSelected && "ring-2 ring-primary ring-offset-1 shadow-lg"
               )}
               style={{
                 left: display.x,
                 top: display.y,
                 width: display.width,
                 height: display.height,
+                cursor: "pointer",
+                pointerEvents: "auto",
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setSelectedId(region.id);
               }}
             >
               {/* Toolbar */}

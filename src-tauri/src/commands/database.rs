@@ -5,6 +5,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 pub struct Folder {
     pub id: String,
     pub name: String,
+    pub emoji: Option<String>,
     pub position: i32,
     pub deadline: Option<String>,
     pub created_at: String,
@@ -94,7 +95,8 @@ pub struct StudyStats {
 }
 
 pub fn get_migrations() -> Vec<Migration> {
-    vec![Migration {
+    vec![
+    Migration {
         version: 1,
         description: "create initial tables",
         sql: r#"
@@ -151,5 +153,12 @@ pub fn get_migrations() -> Vec<Migration> {
             );
         "#,
         kind: MigrationKind::Up,
-    }]
+    },
+    Migration {
+        version: 2,
+        description: "add emoji column to folders",
+        sql: "ALTER TABLE folders ADD COLUMN emoji TEXT;",
+        kind: MigrationKind::Up,
+    },
+    ]
 }

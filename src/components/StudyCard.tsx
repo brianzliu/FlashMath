@@ -1,10 +1,8 @@
-"use client";
-
 import type { Flashcard } from "@/lib/types";
 import { LaTeXRenderer } from "./LaTeXRenderer";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Check, X } from "lucide-react";
 
 interface StudyCardProps {
   card: Flashcard;
@@ -20,29 +18,28 @@ export function StudyCard({
   onRate,
 }: StudyCardProps) {
   return (
-    <Card>
-      <CardHeader className="space-y-3 border-b border-border">
-        <div className="flex items-center justify-between">
-          <Badge variant="secondary">Question</Badge>
-          <span className="text-xs text-muted-foreground">
-            Timer: {card.timer_mode}
-          </span>
-        </div>
-        <div className="rounded-md bg-background/70 p-4">
+    <Card className="overflow-hidden">
+      {/* Question */}
+      <CardContent className="p-6 pb-4">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+          Question
+        </p>
+        <div className="rounded-xl bg-muted/30 p-5">
           <FlashcardContent
             type={card.question_type}
             content={card.question_content}
           />
         </div>
-      </CardHeader>
+      </CardContent>
 
-      {showAnswer ? (
-        <CardContent className="border-b border-border bg-muted/30">
-          <div className="mb-3 flex items-center justify-between">
-            <Badge variant="default">Answer</Badge>
-          </div>
+      {/* Answer */}
+      {showAnswer && (
+        <CardContent className="p-6 pt-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+            Answer
+          </p>
           {card.answer_content ? (
-            <div className="rounded-md bg-background p-4">
+            <div className="rounded-xl bg-success/5 border border-success/20 p-5">
               <FlashcardContent
                 type={card.answer_type || "latex"}
                 content={card.answer_content}
@@ -50,27 +47,36 @@ export function StudyCard({
             </div>
           ) : (
             <p className="text-muted-foreground text-sm italic">
-              No answer provided - rate based on your own solution.
+              No answer provided — rate based on your own solution.
             </p>
           )}
         </CardContent>
-      ) : null}
+      )}
 
-      <CardFooter className="justify-center gap-4">
+      {/* Actions */}
+      <CardFooter className="justify-center gap-3 py-5 border-t border-border">
         {!showAnswer ? (
           <Button size="lg" onClick={onReveal}>
             Reveal Answer
           </Button>
         ) : (
           <>
-            <Button variant="destructive" size="lg" onClick={() => onRate(false)}>
+            <Button
+              variant="destructive"
+              size="lg"
+              onClick={() => onRate(false)}
+              className="min-w-[130px]"
+            >
+              <X className="h-4 w-4 mr-1.5" />
               Incorrect
             </Button>
             <Button
+              variant="success"
               size="lg"
               onClick={() => onRate(true)}
-              className="bg-success text-white hover:bg-success/90"
+              className="min-w-[130px]"
             >
+              <Check className="h-4 w-4 mr-1.5" />
               Correct
             </Button>
           </>
@@ -91,13 +97,12 @@ function FlashcardContent({
     return <LaTeXRenderer content={content} />;
   }
 
-  // Image type - show the image
   return (
     <div className="flex justify-center">
       <img
         src={content}
         alt="Flashcard content"
-        className="max-w-full max-h-64 rounded"
+        className="max-w-full max-h-64 rounded-lg"
       />
     </div>
   );

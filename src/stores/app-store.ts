@@ -19,6 +19,10 @@ interface AppState {
 
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+
+  // Screenshot capture state: data URL of a pending screenshot to use in card creation
+  pendingScreenshot: string | null;
+  setPendingScreenshot: (dataUrl: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -57,4 +61,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   sidebarOpen: true,
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+  pendingScreenshot: null,
+  setPendingScreenshot: (dataUrl) => set({ pendingScreenshot: dataUrl }),
 }));

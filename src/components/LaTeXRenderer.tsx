@@ -1,6 +1,5 @@
-"use client";
-
 import { useMemo } from "react";
+import katex from "katex";
 import "katex/dist/katex.min.css";
 
 interface LaTeXRendererProps {
@@ -16,9 +15,6 @@ export function LaTeXRenderer({
 }: LaTeXRendererProps) {
   const html = useMemo(() => {
     try {
-      // Dynamically import KaTeX to avoid SSR issues
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const katex = require("katex");
       return katex.renderToString(content, {
         displayMode: display,
         throwOnError: false,

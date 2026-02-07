@@ -1,12 +1,12 @@
-"use client";
-
 import { useState, useEffect } from "react";
 import * as commands from "@/lib/commands";
 import type { LLMConfig } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Cpu, Save, Plug } from "lucide-react";
 
 const PROVIDERS = [
   { value: "openai", label: "OpenAI" },
@@ -52,9 +52,7 @@ export default function SettingsPage() {
         setModel(config.model);
         setBaseUrl(config.base_url);
       })
-      .catch(() => {
-        // Not configured yet - use defaults
-      })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
@@ -87,12 +85,10 @@ export default function SettingsPage() {
     setTesting(true);
     setTestResult(null);
     try {
-      // Save first so the backend has the config
       await handleSave();
-      const result = await commands.ocrImage(""); // will likely fail but tests the connection
-      setTestResult(`Connection successful: ${result}`);
+      await commands.ocrImage("");
+      setTestResult("Connection successful.");
     } catch (err) {
-      // A connection test with empty image will fail, but if it gets past auth that's good
       const errStr = String(err);
       if (errStr.includes("Failed to read image")) {
         setTestResult("Connection successful (LLM reachable).");
@@ -104,43 +100,47 @@ export default function SettingsPage() {
     }
   };
 
-  if (loading) return <p className="text-muted-foreground">Loading...</p>;
+  if (loading)
+    return <p className="text-muted-foreground py-8 text-center">Loading...</p>;
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 animate-fade-up">
       <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage your OCR and LLM connectivity for card creation.
+        <h1 className="text-2xl font-extrabold tracking-tight">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Configure your LLM for OCR and difficulty estimation.
         </p>
       </div>
 
       <Card>
-        <CardHeader className="space-y-2">
-          <CardTitle>LLM Configuration</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            A vision-capable model is required for OCR and difficulty estimation.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Provider</label>
-            <select
-              value={provider}
-              onChange={(e) => handleProviderChange(e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+        <CardContent className="p-6 space-y-5">
+          <div className="flex items-center gap-2 mb-2">
+            <Cpu className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-bold">LLM Provider</h2>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {PROVIDERS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => handleProviderChange(p.value)}
+                className={cn(
+                  "rounded-xl px-4 py-2 text-sm font-medium transition-colors",
+                  provider === p.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
 
           {provider !== "ollama" && (
             <div>
-              <label className="block text-sm font-medium mb-1">API Key</label>
+              <label className="block text-sm font-medium mb-1.5">
+                API Key
+              </label>
               <Input
                 type="password"
                 value={apiKey}
@@ -151,7 +151,7 @@ export default function SettingsPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-1">Model</label>
+            <label className="block text-sm font-medium mb-1.5">Model</label>
             <Input
               type="text"
               value={model}
@@ -162,7 +162,9 @@ export default function SettingsPage() {
 
           {(provider === "ollama" || provider === "custom") && (
             <div>
-              <label className="block text-sm font-medium mb-1">Base URL</label>
+              <label className="block text-sm font-medium mb-1.5">
+                Base URL
+              </label>
               <Input
                 type="text"
                 value={baseUrl}
@@ -172,23 +174,35 @@ export default function SettingsPage() {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 pt-2">
             <Button onClick={handleSave} disabled={saving}>
+              <Save className="h-4 w-4 mr-1.5" />
               {saving ? "Saving..." : "Save"}
             </Button>
-            <Button variant="secondary" onClick={handleTest} disabled={testing}>
+            <Button
+              variant="secondary"
+              onClick={handleTest}
+              disabled={testing}
+            >
+              <Plug className="h-4 w-4 mr-1.5" />
               {testing ? "Testing..." : "Test Connection"}
             </Button>
           </div>
 
           {saveMessage && (
-            <Badge variant={saveMessage.startsWith("Error") ? "destructive" : "success"}>
+            <Badge
+              variant={
+                saveMessage.startsWith("Error") ? "destructive" : "success"
+              }
+            >
               {saveMessage}
             </Badge>
           )}
           {testResult && (
             <Badge
-              variant={testResult.includes("failed") ? "destructive" : "success"}
+              variant={
+                testResult.includes("failed") ? "destructive" : "success"
+              }
             >
               {testResult}
             </Badge>

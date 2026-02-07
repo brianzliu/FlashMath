@@ -1,17 +1,16 @@
-"use client";
-
-import { useState, useCallback, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useCallback, useMemo, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnnotationCanvas, type Region } from "@/components/AnnotationCanvas";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ImagePlus, Upload } from "lucide-react";
 
 export default function ImportImagePage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const folderId = searchParams.get("folderId") || "";
   const { folders } = useAppStore();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -19,6 +18,8 @@ export default function ImportImagePage() {
   const [regions, setRegions] = useState<Region[]>([]);
   const [creating, setCreating] = useState(false);
   const [useOcr, setUseOcr] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const folderName = useMemo(
     () => folders.find((f) => f.id === folderId)?.name || "",
@@ -32,8 +33,12 @@ export default function ImportImagePage() {
       reader.onerror = () => reject(new Error("Failed to read file"));
       reader.readAsDataURL(file);
     });
-    const savedPath = await commands.saveImageFromDataUrl(dataUrl);
-    setImagePath(savedPath);
+    try {
+      const savedPath = await commands.saveImageFromDataUrl(dataUrl);
+      setImagePath(savedPath);
+    } catch {
+      setImagePath(null);
+    }
     setImageUrl(dataUrl);
   }, []);
 
@@ -50,7 +55,6 @@ export default function ImportImagePage() {
           },
         ],
       });
-
       const path = Array.isArray(result) ? result[0] : result;
       if (path) {
         const pathStr = path as string;
@@ -58,9 +62,14 @@ export default function ImportImagePage() {
         const dataUrl = await commands.getImageAsDataUrl(pathStr);
         setImageUrl(dataUrl);
       }
-    } catch (err) {
-      console.error("Failed to open file:", err);
+    } catch {
+      fileInputRef.current?.click();
     }
+  };
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileBlob(file);
   };
 
   const handleRegionsChange = useCallback((newRegions: Region[]) => {
@@ -72,15 +81,13 @@ export default function ImportImagePage() {
     setCreating(true);
 
     try {
-      // Group regions into Q/A pairs
       const questions = regions.filter((r) => r.role === "question");
       const answers = regions.filter((r) => r.role === "answer");
 
       for (let i = 0; i < questions.length; i++) {
         const q = questions[i];
-        const a = answers[i]; // May be undefined
+        const a = answers[i];
 
-        // Crop question region
         const qPath = await commands.cropRegion(
           imagePath,
           q.x,
@@ -98,7 +105,7 @@ export default function ImportImagePage() {
             qType = "latex";
             qContent = latex;
           } catch {
-            // Fall back to image if OCR fails
+            /* fall back */
           }
         }
 
@@ -138,7 +145,7 @@ export default function ImportImagePage() {
         });
       }
 
-      router.push(`/folder?id=${folderId}`);
+      navigate(`/folder?id=${folderId}`);
     } catch (err) {
       console.error("Failed to create flashcards:", err);
     } finally {
@@ -150,19 +157,16 @@ export default function ImportImagePage() {
 
   if (!folderId) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Import from Image</h1>
-          <p className="text-sm text-muted-foreground">
-            Select a folder to import images into.
-          </p>
-        </div>
-        <Card>
-          <CardContent className="space-y-4 py-10 text-center">
+      <div className="space-y-6 animate-fade-up">
+        <h1 className="text-2xl font-extrabold tracking-tight">
+          Import Image
+        </h1>
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <p className="text-muted-foreground">
-              Import is only available inside a folder.
+              Open a deck first, then import images from there.
             </p>
-            <Button onClick={() => router.push("/")}>Back to Dashboard</Button>
+            <Button onClick={() => navigate("/")}>Go to Dashboard</Button>
           </CardContent>
         </Card>
       </div>
@@ -170,53 +174,72 @@ export default function ImportImagePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-up">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileInput}
+      />
+
       <div>
-        <h1 className="text-2xl font-semibold">Import from Image</h1>
-        <p className="text-sm text-muted-foreground">
-          Draw question and answer regions, then generate cards.
+        <h1 className="text-2xl font-extrabold tracking-tight">
+          Import Image
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Into{" "}
+          <span className="font-semibold text-foreground">
+            {folderName || "deck"}
+          </span>{" "}
+          — draw rectangles around questions and answers
         </p>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-2 py-4">
-          <Badge variant="secondary">Target folder</Badge>
-          <span className="text-sm font-medium">
-            {folderName || "Untitled"}
-          </span>
-        </CardContent>
-      </Card>
-
       {!imageUrl ? (
         <Card
-          className="border-dashed"
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => {
-            event.preventDefault();
-            const file = event.dataTransfer.files?.[0];
-            if (file) {
-              void handleFileBlob(file);
-            }
+          className={`border-dashed border-2 cursor-pointer transition-colors ${
+            isDragOver
+              ? "border-primary bg-primary/5"
+              : "hover:border-primary/40"
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragOver(true);
           }}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOver(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) handleFileBlob(file);
+          }}
+          onClick={handleOpenFile}
         >
-          <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
-            <p className="text-muted-foreground">
-              Select an image file to import flashcards from.
-            </p>
-            <Button onClick={handleOpenFile}>Open Image</Button>
-            <div className="text-xs text-muted-foreground">
-              or drag and drop an image file here
+          <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
+            <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <ImagePlus className="h-7 w-7 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold">
+                {isDragOver
+                  ? "Drop image here"
+                  : "Drop an image or click to browse"}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                PNG, JPG, GIF, WebP, BMP supported
+              </p>
             </div>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              Draw rectangles around questions (Q) and answers (A). Tag each
-              region using the toolbar.
+              Draw rectangles, then tag each as <strong>Q</strong> or{" "}
+              <strong>A</strong>
             </p>
-            <Button variant="ghost" onClick={handleOpenFile}>
+            <Button variant="ghost" size="sm" onClick={handleOpenFile}>
               Change image
             </Button>
           </div>
@@ -227,20 +250,16 @@ export default function ImportImagePage() {
           />
 
           <Card>
-            <CardHeader>
-              <CardTitle>Card creation</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-wrap items-center gap-4">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <CardContent className="flex flex-wrap items-center gap-4 py-4">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={useOcr}
                   onChange={(e) => setUseOcr(e.target.checked)}
-                  className="h-4 w-4 rounded border-border"
+                  className="h-4 w-4 rounded border-border accent-primary"
                 />
                 Convert to LaTeX (OCR)
               </label>
-
               <div className="ml-auto flex items-center gap-3">
                 <Badge variant="secondary">
                   {questionCount} question{questionCount !== 1 ? "s" : ""}
@@ -249,11 +268,15 @@ export default function ImportImagePage() {
                   onClick={handleCreateCards}
                   disabled={creating || questionCount === 0 || !folderId}
                 >
-                  {creating
-                    ? "Creating..."
-                    : `Create ${questionCount} Card${
-                        questionCount !== 1 ? "s" : ""
-                      }`}
+                  {creating ? (
+                    "Creating..."
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-1.5" />
+                      Create {questionCount} Card
+                      {questionCount !== 1 ? "s" : ""}
+                    </>
+                  )}
                 </Button>
               </div>
             </CardContent>

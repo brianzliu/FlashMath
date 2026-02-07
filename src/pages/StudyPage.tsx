@@ -1,7 +1,5 @@
-"use client";
-
-import { Suspense, useState, useEffect, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
 import { Timer } from "@/components/Timer";
@@ -9,6 +7,7 @@ import { StudyCard } from "@/components/StudyCard";
 import { SessionSummary } from "@/components/SessionSummary";
 import type { Flashcard, ReviewResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 
 type SessionState = "loading" | "studying" | "revealing" | "summary";
 
@@ -18,9 +17,9 @@ interface CompletedCard {
   responseTime: number;
 }
 
-function StudyPageContent() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
+export default function StudyPage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const folderId = searchParams.get("folderId") || "all";
   const { folders } = useAppStore();
   const folder = folders.find((f) => f.id === folderId);
@@ -63,7 +62,6 @@ function StudyPageContent() {
 
   const handleRate = async (correct: boolean) => {
     if (!currentCard) return;
-
     const responseTime = (Date.now() - startTime) / 1000;
 
     try {
@@ -92,7 +90,11 @@ function StudyPageContent() {
   };
 
   if (state === "loading") {
-    return <p className="text-muted-foreground">Loading study session...</p>;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
   }
 
   if (state === "summary") {
@@ -101,9 +103,7 @@ function StudyPageContent() {
         completed={completed}
         folderName={folder?.name || "All Cards"}
         onReturn={() =>
-          router.push(
-            folderId === "all" ? "/" : `/folder?id=${folderId}`
-          )
+          navigate(folderId === "all" ? "/" : `/folder?id=${folderId}`)
         }
         onStudyAgain={() => {
           setCompleted([]);
@@ -116,36 +116,52 @@ function StudyPageContent() {
   }
 
   if (!currentCard) {
-    return <p className="text-muted-foreground">No cards to study.</p>;
+    return (
+      <p className="text-muted-foreground py-8 text-center">
+        No cards to study.
+      </p>
+    );
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="max-w-2xl mx-auto space-y-6 animate-fade-up">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">
-            Studying: {folder?.name || "All Cards"}
-          </h1>
+          <h1 className="text-lg font-bold">{folder?.name || "All Cards"}</h1>
           <p className="text-sm text-muted-foreground">
-            {currentIndex + 1} / {dueCards.length} cards
+            Card {currentIndex + 1} of {dueCards.length}
           </p>
         </div>
         <Button
           variant="ghost"
+          size="icon"
+          className="h-8 w-8"
           onClick={() => {
             setState("summary");
             setTimerRunning(false);
           }}
+          title="End session"
         >
-          End session
+          <X className="h-4 w-4" />
         </Button>
       </div>
 
-      <Timer
-        totalSeconds={currentCard.timer_seconds}
-        running={timerRunning}
-        className="mb-6"
-      />
+      <div className="flex gap-1">
+        {dueCards.map((_, i) => (
+          <div
+            key={i}
+            className={`h-1.5 flex-1 rounded-full transition-colors ${
+              i < currentIndex
+                ? "bg-primary"
+                : i === currentIndex
+                ? "bg-primary/50"
+                : "bg-border"
+            }`}
+          />
+        ))}
+      </div>
+
+      <Timer totalSeconds={currentCard.timer_seconds} running={timerRunning} />
 
       <StudyCard
         card={currentCard}
@@ -153,15 +169,6 @@ function StudyPageContent() {
         onReveal={handleReveal}
         onRate={handleRate}
       />
-
     </div>
-  );
-}
-
-export default function StudyPage() {
-  return (
-    <Suspense fallback={<p className="text-muted-foreground">Loading...</p>}>
-      <StudyPageContent />
-    </Suspense>
   );
 }

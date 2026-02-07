@@ -1,6 +1,7 @@
 export interface Folder {
   id: string;
   name: string;
+  emoji: string | null;
   position: number;
   deadline: string | null;
   created_at: string;

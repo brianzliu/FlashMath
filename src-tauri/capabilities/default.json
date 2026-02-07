@@ -8,6 +8,12 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "fs:default",
+    "sql:default",
+    "sql:allow-execute"
   ]
 }
