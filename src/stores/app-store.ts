@@ -23,6 +23,10 @@ interface AppState {
   // Screenshot capture state: data URL of a pending screenshot to use in card creation
   pendingScreenshot: string | null;
   setPendingScreenshot: (dataUrl: string | null) => void;
+
+  // AI chat panel
+  aiPanelOpen: boolean;
+  setAiPanelOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -64,4 +68,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   pendingScreenshot: null,
   setPendingScreenshot: (dataUrl) => set({ pendingScreenshot: dataUrl }),
+
+  aiPanelOpen: false,
+  setAiPanelOpen: (open) => set({ aiPanelOpen: open }),
 }));

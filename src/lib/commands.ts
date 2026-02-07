@@ -60,6 +60,21 @@ export const ocrImage = (imagePath: string) =>
   invoke<string>("ocr_image", { imagePath });
 export const assessDifficulty = (latex: string) =>
   invoke<number>("assess_difficulty", { latex });
+export const generateImageTitle = (imagePath: string) =>
+  invoke<string>("generate_image_title", { imagePath });
+export const generateLatexTitle = (latex: string) =>
+  invoke<string>("generate_latex_title", { latex });
+export const generateAnswer = (questionContent: string, questionType: string) =>
+  invoke<string>("generate_answer", { questionContent, questionType });
+export const generateQuestion = (answerContent: string, answerType: string) =>
+  invoke<string>("generate_question", { answerContent, answerType });
+export const convertImageToText = (imagePath: string, role: string) =>
+  invoke<string>("convert_image_to_text", { imagePath, role });
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const chatCompletion = (messages: any[], tools?: any[]) =>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  invoke<any>("chat_completion", { messages, tools: tools ?? null });
 
 // Files
 export const saveImageFromDataUrl = (dataUrl: string) =>

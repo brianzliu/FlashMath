@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { TIMER_PRESETS } from "@/lib/constants";
 import type { CreateFlashcardInput } from "@/lib/types";
@@ -7,8 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { LaTeXRenderer } from "@/components/LaTeXRenderer";
+import { ImageDisplay, isImagePath } from "@/components/ImageDisplay";
 import { cn } from "@/lib/utils";
-import { Clock, Image, Type, Camera, FileUp, ImagePlus, X } from "lucide-react";
+import {
+  Clock, Image, Type, Camera, FileUp, ImagePlus, X,
+  Sparkles, Loader2, ArrowRightLeft,
+} from "lucide-react";
+import * as commands from "@/lib/commands";
 
 interface FlashcardEditorProps {
   initialData?: Partial<CreateFlashcardInput>;
@@ -44,10 +49,72 @@ export function FlashcardEditor({
     initialData?.answer_content || ""
   );
   const [timerMode, setTimerMode] = useState<
-    "1min" | "5min" | "10min" | "llm"
-  >((initialData?.timer_mode as "1min" | "5min" | "10min" | "llm") || "5min");
+    "1min" | "5min" | "10min" | "llm" | "custom"
+  >((initialData?.timer_mode as "1min" | "5min" | "10min" | "llm" | "custom") || "5min");
+  const [customMinutes, setCustomMinutes] = useState(() => {
+    if (initialData?.timer_mode === "custom" && initialData?.timer_seconds) {
+      return Math.floor(initialData.timer_seconds / 60);
+    }
+    return 3;
+  });
+  const [customSeconds, setCustomSeconds] = useState(() => {
+    if (initialData?.timer_mode === "custom" && initialData?.timer_seconds) {
+      return initialData.timer_seconds % 60;
+    }
+    return 0;
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const answerFileInputRef = useRef<HTMLInputElement>(null);
+
+  // LLM generation states
+  const [generatingAnswer, setGeneratingAnswer] = useState(false);
+  const [generatingQuestion, setGeneratingQuestion] = useState(false);
+  const [convertingQuestion, setConvertingQuestion] = useState(false);
+  const [convertingAnswer, setConvertingAnswer] = useState(false);
+  const [assessedTime, setAssessedTime] = useState<number | null>(null);
+  const [assessingTime, setAssessingTime] = useState(false);
+
+  useEffect(() => {
+    if (!initialData?.question_content) return;
+    const content = initialData.question_content;
+    if (isImagePath(content) && !content.startsWith("data:")) {
+      commands.getImageAsDataUrl(content).then(setQuestionContent).catch(() => {});
+    }
+  }, [initialData?.question_content]);
+
+  useEffect(() => {
+    if (!initialData?.answer_content) return;
+    const content = initialData.answer_content;
+    if (isImagePath(content) && !content.startsWith("data:")) {
+      commands.getImageAsDataUrl(content).then(setAnswerContent).catch(() => {});
+    }
+  }, [initialData?.answer_content]);
+
+  // Auto-assess difficulty when timer mode is "llm" and question has content
+  useEffect(() => {
+    if (timerMode !== "llm" || !questionContent.trim()) {
+      setAssessedTime(null);
+      return;
+    }
+    // Only assess for latex questions (image assessment would need a different approach)
+    if (questionType !== "latex") {
+      setAssessedTime(null);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      setAssessingTime(true);
+      try {
+        const seconds = await commands.assessDifficulty(questionContent);
+        setAssessedTime(seconds);
+      } catch {
+        setAssessedTime(null);
+      } finally {
+        setAssessingTime(false);
+      }
+    }, 1000); // debounce 1 second
+
+    return () => clearTimeout(timeout);
+  }, [timerMode, questionContent, questionType]);
 
   // Apply screenshot image when it arrives
   if (screenshotImage && questionContent !== screenshotImage) {
@@ -75,7 +142,9 @@ export function FlashcardEditor({
 
     const timerSeconds =
       timerMode === "llm"
-        ? 300
+        ? (assessedTime || 300)
+        : timerMode === "custom"
+        ? Math.max(10, customMinutes * 60 + customSeconds)
         : TIMER_PRESETS[timerMode as keyof typeof TIMER_PRESETS];
 
     onSave({
@@ -101,6 +170,81 @@ export function FlashcardEditor({
     const reader = new FileReader();
     reader.onload = () => setter(reader.result as string);
     reader.readAsDataURL(file);
+  };
+
+  // --- LLM auto-generate handlers ---
+
+  const handleGenerateAnswer = async () => {
+    if (!questionHasContent || generatingAnswer) return;
+    setGeneratingAnswer(true);
+    try {
+      // For image questions, we need to persist the image first so the Rust backend can read it
+      let content = questionContent;
+      if (questionType === "image" && content.startsWith("data:")) {
+        content = await commands.saveImageFromDataUrl(content);
+        setQuestionContent(content);
+      }
+      const result = await commands.generateAnswer(content, questionType);
+      if (result) {
+        setHasAnswer(true);
+        setAnswerType("latex");
+        setAnswerContent(result.trim());
+      }
+    } catch (err) {
+      console.error("Failed to generate answer:", err);
+    } finally {
+      setGeneratingAnswer(false);
+    }
+  };
+
+  const handleGenerateQuestion = async () => {
+    if (!answerHasContent || generatingQuestion) return;
+    setGeneratingQuestion(true);
+    try {
+      let content = answerContent;
+      if (answerType === "image" && content.startsWith("data:")) {
+        content = await commands.saveImageFromDataUrl(content);
+        setAnswerContent(content);
+      }
+      const result = await commands.generateQuestion(content, answerType);
+      if (result) {
+        setQuestionType("latex");
+        setQuestionContent(result.trim());
+      }
+    } catch (err) {
+      console.error("Failed to generate question:", err);
+    } finally {
+      setGeneratingQuestion(false);
+    }
+  };
+
+  const handleConvertToText = async (
+    role: "question" | "answer",
+  ) => {
+    const isQuestion = role === "question";
+    const content = isQuestion ? questionContent : answerContent;
+    const setContent = isQuestion ? setQuestionContent : setAnswerContent;
+    const setType = isQuestion ? setQuestionType : setAnswerType;
+    const setConverting = isQuestion ? setConvertingQuestion : setConvertingAnswer;
+
+    if (!content) return;
+    setConverting(true);
+    try {
+      // Persist image first if it's a data URL
+      let imagePath = content;
+      if (content.startsWith("data:")) {
+        imagePath = await commands.saveImageFromDataUrl(content);
+      }
+      const latex = await commands.convertImageToText(imagePath, role);
+      if (latex) {
+        setType("latex");
+        setContent(latex.trim());
+      }
+    } catch (err) {
+      console.error(`Failed to convert ${role} to text:`, err);
+    } finally {
+      setConverting(false);
+    }
   };
 
   return (
@@ -162,14 +306,35 @@ export function FlashcardEditor({
                 setQuestionType("image")
               )
             }
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => !questionContent && fileInputRef.current?.click()}
           >
             {questionContent ? (
-              <img
-                src={questionContent}
-                alt="Question"
-                className="max-w-full max-h-48 mx-auto rounded-lg"
-              />
+              <div className="space-y-3">
+                <ImageDisplay
+                  src={questionContent}
+                  alt="Question"
+                  className="max-w-full max-h-48 mx-auto rounded-lg"
+                />
+                <div className="flex items-center justify-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleConvertToText("question");
+                    }}
+                    disabled={convertingQuestion}
+                  >
+                    {convertingQuestion ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    {convertingQuestion ? "Converting..." : "Convert to Text"}
+                  </Button>
+                </div>
+              </div>
             ) : (
               <div className="space-y-3">
                 <Image className="h-8 w-8 mx-auto text-muted-foreground/40" />
@@ -219,6 +384,25 @@ export function FlashcardEditor({
               </div>
             )}
           </div>
+        )}
+
+        {/* Generate Answer button — below question when it has content */}
+        {questionHasContent && !answerHasContent && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleGenerateAnswer}
+            disabled={generatingAnswer}
+            className="w-full border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
+          >
+            {generatingAnswer ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            {generatingAnswer ? "Generating answer..." : "Generate Answer with AI"}
+          </Button>
         )}
       </section>
 
@@ -296,14 +480,35 @@ export function FlashcardEditor({
                   setAnswerType("image")
                 )
               }
-              onClick={() => answerFileInputRef.current?.click()}
+              onClick={() => !answerContent && answerFileInputRef.current?.click()}
             >
               {answerContent ? (
-                <img
-                  src={answerContent}
-                  alt="Answer"
-                  className="max-w-full max-h-48 mx-auto rounded-lg"
-                />
+                <div className="space-y-3">
+                  <ImageDisplay
+                    src={answerContent}
+                    alt="Answer"
+                    className="max-w-full max-h-48 mx-auto rounded-lg"
+                  />
+                  <div className="flex items-center justify-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleConvertToText("answer");
+                      }}
+                      disabled={convertingAnswer}
+                    >
+                      {convertingAnswer ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+                      )}
+                      {convertingAnswer ? "Converting..." : "Convert to Text"}
+                    </Button>
+                  </div>
+                </div>
               ) : (
                 <div className="space-y-3">
                   <Image className="h-8 w-8 mx-auto text-muted-foreground/40" />
@@ -328,6 +533,25 @@ export function FlashcardEditor({
               )}
             </div>
           )}
+
+          {/* Generate Question button — below answer when it has content but question is empty */}
+          {answerHasContent && !questionHasContent && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleGenerateQuestion}
+              disabled={generatingQuestion}
+              className="w-full border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
+            >
+              {generatingQuestion ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              {generatingQuestion ? "Generating question..." : "Generate Question with AI"}
+            </Button>
+          )}
         </section>
       )}
 
@@ -338,7 +562,7 @@ export function FlashcardEditor({
           <h3 className="text-sm font-bold">Timer</h3>
         </div>
         <div className="flex flex-wrap gap-2">
-          {(["1min", "5min", "10min", "llm"] as const).map((mode) => (
+          {(["1min", "5min", "10min", "custom", "llm"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
@@ -350,14 +574,61 @@ export function FlashcardEditor({
                   : "bg-muted text-muted-foreground hover:text-foreground"
               )}
             >
-              {mode === "llm" ? "Auto (LLM)" : mode}
+              {mode === "llm" ? "Auto (LLM)" : mode === "custom" ? "Custom" : mode}
             </button>
           ))}
         </div>
+        {timerMode === "custom" && (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                max={120}
+                value={customMinutes}
+                onChange={(e) => setCustomMinutes(Math.max(0, Math.min(120, parseInt(e.target.value) || 0)))}
+                className="w-14 rounded-lg border border-input bg-background px-2 py-1.5 text-sm text-center font-medium outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+              />
+              <span className="text-xs text-muted-foreground">min</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                max={59}
+                value={customSeconds}
+                onChange={(e) => setCustomSeconds(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                className="w-14 rounded-lg border border-input bg-background px-2 py-1.5 text-sm text-center font-medium outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+              />
+              <span className="text-xs text-muted-foreground">sec</span>
+            </div>
+            <span className="text-xs text-muted-foreground ml-1">
+              = {Math.max(10, customMinutes * 60 + customSeconds)}s total
+            </span>
+          </div>
+        )}
         {timerMode === "llm" && (
-          <p className="text-xs text-muted-foreground">
-            The LLM will estimate the time based on question difficulty.
-          </p>
+          <div className="space-y-1">
+            {assessingTime ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Estimating time...
+              </p>
+            ) : assessedTime ? (
+              <p className="text-xs text-muted-foreground">
+                Estimated time:{" "}
+                <span className="font-bold text-foreground">
+                  {assessedTime >= 60
+                    ? `${Math.floor(assessedTime / 60)}m ${assessedTime % 60}s`
+                    : `${assessedTime}s`}
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                The LLM will estimate the time based on question difficulty.
+              </p>
+            )}
+          </div>
         )}
       </section>
 

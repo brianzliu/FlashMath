@@ -227,8 +227,12 @@ export default function BrowsePage() {
                           {card.question_content.slice(0, 80)}
                         </span>
                       ) : (
-                        <span className="text-muted-foreground italic">
-                          [Image card]
+                        <span>
+                          {card.title || (
+                            <span className="text-muted-foreground italic">
+                              [Image card]
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>

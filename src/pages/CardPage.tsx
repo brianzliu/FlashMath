@@ -6,6 +6,48 @@ import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
 import { Card, CardContent } from "@/components/ui/card";
 
+function isDataUrl(content: string): boolean {
+  return content.startsWith("data:");
+}
+
+async function generateTitle(card: Flashcard): Promise<void> {
+  try {
+    let title: string;
+    if (card.question_type === "image") {
+      title = await commands.generateImageTitle(card.question_content);
+    } else {
+      title = await commands.generateLatexTitle(card.question_content);
+    }
+    if (title) {
+      await commands.updateFlashcard(card.id, { title });
+    }
+  } catch (err) {
+    console.warn("Auto title generation failed:", err);
+  }
+}
+
+async function persistDataUrlImages(data: CreateFlashcardInput): Promise<CreateFlashcardInput> {
+  const result = { ...data };
+  
+  if (data.question_type === "image" && isDataUrl(data.question_content)) {
+    try {
+      result.question_content = await commands.saveImageFromDataUrl(data.question_content);
+    } catch {
+      // Keep original if save fails
+    }
+  }
+  
+  if (data.answer_type === "image" && data.answer_content && isDataUrl(data.answer_content)) {
+    try {
+      result.answer_content = await commands.saveImageFromDataUrl(data.answer_content);
+    } catch {
+      // Keep original if save fails
+    }
+  }
+  
+  return result;
+}
+
 export default function CardPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -53,14 +95,23 @@ export default function CardPage() {
   const handleSave = async (data: CreateFlashcardInput) => {
     setSaving(true);
     try {
+      const persistedData = await persistDataUrlImages(data);
+      let savedCard: Flashcard;
       if (isEditing && cardId) {
-        await commands.updateFlashcard(cardId, data);
+        await commands.updateFlashcard(cardId, persistedData);
+        savedCard = await commands.getFlashcard(cardId);
       } else {
-        await commands.createFlashcard({
-          ...data,
+        savedCard = await commands.createFlashcard({
+          ...persistedData,
           folder_id: folderId,
         });
       }
+
+      // Auto-generate title in the background (fire-and-forget)
+      if (!savedCard.title) {
+        generateTitle(savedCard).catch(() => {});
+      }
+
       if (folderId) {
         navigate(`/folder?id=${folderId}`);
       } else if (card?.folder_id) {

@@ -254,6 +254,7 @@ export async function createFlashcard(
     const card: Flashcard = {
       id,
       folder_id: data.folder_id || null,
+      title: data.title ?? null,
       question_type: data.question_type,
       question_content: data.question_content,
       answer_type: data.answer_type ?? null,
@@ -275,13 +276,14 @@ export async function createFlashcard(
   const db = await getDb();
   await db.execute(
     `INSERT INTO flashcards
-      (id, folder_id, question_type, question_content, answer_type, answer_content,
+      (id, folder_id, title, question_type, question_content, answer_type, answer_content,
        timer_mode, timer_seconds, ease_factor, interval_days, repetitions, due_date,
        created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 2.5, 0, 0, $9, $10, $11)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 2.5, 0, 0, $10, $11, $12)`,
     [
       id,
       data.folder_id || null,
+      data.title ?? null,
       data.question_type,
       data.question_content,
       data.answer_type || null,
@@ -312,6 +314,8 @@ export async function updateFlashcard(
         ? {
             ...card,
             ...data,
+            title:
+              data.title !== undefined ? data.title : card.title,
             answer_type:
               data.answer_type !== undefined ? data.answer_type : card.answer_type,
             answer_content:
@@ -333,6 +337,10 @@ export async function updateFlashcard(
   if (data.folder_id !== undefined) {
     fields.push(`folder_id = $${paramIdx++}`);
     values.push(data.folder_id);
+  }
+  if (data.title !== undefined) {
+    fields.push(`title = $${paramIdx++}`);
+    values.push(data.title);
   }
   if (data.question_type !== undefined) {
     fields.push(`question_type = $${paramIdx++}`);

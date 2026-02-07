@@ -1,5 +1,6 @@
 import type { Flashcard } from "@/lib/types";
 import { LaTeXRenderer } from "./LaTeXRenderer";
+import { ImageDisplay } from "./ImageDisplay";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Check, X } from "lucide-react";
@@ -99,7 +100,7 @@ function FlashcardContent({
 
   return (
     <div className="flex justify-center">
-      <img
+      <ImageDisplay
         src={content}
         alt="Flashcard content"
         className="max-w-full max-h-64 rounded-lg"

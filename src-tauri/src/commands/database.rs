@@ -16,6 +16,7 @@ pub struct Folder {
 pub struct Flashcard {
     pub id: String,
     pub folder_id: Option<String>,
+    pub title: Option<String>,
     pub question_type: String,
     pub question_content: String,
     pub answer_type: Option<String>,
@@ -34,6 +35,7 @@ pub struct Flashcard {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateFlashcardInput {
     pub folder_id: Option<String>,
+    pub title: Option<String>,
     pub question_type: String,
     pub question_content: String,
     pub answer_type: Option<String>,
@@ -45,6 +47,7 @@ pub struct CreateFlashcardInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateFlashcardInput {
     pub folder_id: Option<String>,
+    pub title: Option<String>,
     pub question_type: Option<String>,
     pub question_content: Option<String>,
     pub answer_type: Option<String>,
@@ -96,10 +99,10 @@ pub struct StudyStats {
 
 pub fn get_migrations() -> Vec<Migration> {
     vec![
-    Migration {
-        version: 1,
-        description: "create initial tables",
-        sql: r#"
+        Migration {
+            version: 1,
+            description: "create initial tables",
+            sql: r#"
             CREATE TABLE IF NOT EXISTS folders (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -152,13 +155,19 @@ pub fn get_migrations() -> Vec<Migration> {
                 value TEXT NOT NULL
             );
         "#,
-        kind: MigrationKind::Up,
-    },
-    Migration {
-        version: 2,
-        description: "add emoji column to folders",
-        sql: "ALTER TABLE folders ADD COLUMN emoji TEXT;",
-        kind: MigrationKind::Up,
-    },
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "add emoji column to folders",
+            sql: "ALTER TABLE folders ADD COLUMN emoji TEXT;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 3,
+            description: "add title column to flashcards",
+            sql: "ALTER TABLE flashcards ADD COLUMN title TEXT;",
+            kind: MigrationKind::Up,
+        },
     ]
 }

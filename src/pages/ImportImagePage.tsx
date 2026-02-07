@@ -98,6 +98,7 @@ export default function ImportImagePage() {
 
         let qType: "image" | "latex" = "image";
         let qContent = qPath;
+        let qTitle: string | null = null;
 
         if (useOcr) {
           try {
@@ -106,6 +107,15 @@ export default function ImportImagePage() {
             qContent = latex;
           } catch {
             /* fall back */
+          }
+        }
+
+        // Generate title for image questions using LLM
+        if (qType === "image") {
+          try {
+            qTitle = await commands.generateImageTitle(qPath);
+          } catch {
+            /* fall back to null title */
           }
         }
 
@@ -138,6 +148,7 @@ export default function ImportImagePage() {
 
         await commands.createFlashcard({
           folder_id: folderId,
+          title: qTitle,
           question_type: qType,
           question_content: qContent,
           answer_type: aType,

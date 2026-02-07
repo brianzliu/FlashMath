@@ -17,6 +17,7 @@ import {
   Trash2,
   Calendar,
   Target,
+  Clock,
 } from "lucide-react";
 
 export default function FolderPage() {
@@ -324,12 +325,17 @@ function FlashcardRow({
         />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">
-            {card.question_type === "latex"
+            {card.title
+              ? card.title
+              : card.question_type === "latex"
               ? card.question_content.slice(0, 80)
               : "[Image]"}
           </p>
           <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-            <span>{card.timer_mode}</span>
+            <span className="flex items-center gap-0.5">
+              <Clock className="h-3 w-3" />
+              {formatTimer(card.timer_seconds)}
+            </span>
             <span>EF {card.ease_factor.toFixed(1)}</span>
             <span>Rep {card.repetitions}</span>
           </div>
@@ -368,4 +374,18 @@ function FlashcardRow({
       </CardContent>
     </Card>
   );
+}
+
+function formatTimer(seconds: number): string {
+  if (seconds >= 3600) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  if (seconds >= 60) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  return `${seconds}s`;
 }

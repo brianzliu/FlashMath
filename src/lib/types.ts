@@ -11,11 +11,12 @@ export interface Folder {
 export interface Flashcard {
   id: string;
   folder_id: string | null;
+  title: string | null;
   question_type: "image" | "latex";
   question_content: string;
   answer_type: "image" | "latex" | null;
   answer_content: string | null;
-  timer_mode: "1min" | "5min" | "10min" | "llm";
+  timer_mode: "1min" | "5min" | "10min" | "llm" | "custom";
   timer_seconds: number;
   ease_factor: number;
   interval_days: number;
@@ -43,21 +44,23 @@ export interface Review {
 
 export interface CreateFlashcardInput {
   folder_id: string | null;
+  title?: string | null;
   question_type: "image" | "latex";
   question_content: string;
   answer_type?: "image" | "latex" | null;
   answer_content?: string | null;
-  timer_mode?: "1min" | "5min" | "10min" | "llm";
+  timer_mode?: "1min" | "5min" | "10min" | "llm" | "custom";
   timer_seconds?: number;
 }
 
 export interface UpdateFlashcardInput {
   folder_id?: string | null;
+  title?: string | null;
   question_type?: "image" | "latex";
   question_content?: string;
   answer_type?: "image" | "latex" | null;
   answer_content?: string | null;
-  timer_mode?: "1min" | "5min" | "10min" | "llm";
+  timer_mode?: "1min" | "5min" | "10min" | "llm" | "custom";
   timer_seconds?: number;
 }
 
