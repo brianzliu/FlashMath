@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
-import { sendChat, type ChatMessage } from "@/lib/ai-chat";
-import { X, SendHorizonal, Sparkles, Bot, Loader2, Trash2 } from "lucide-react";
+import { sendChat, setOnProposedCards, type ChatMessage } from "@/lib/ai-chat";
+import { useAppStore } from "@/stores/app-store";
+import * as commands from "@/lib/commands";
+import type { CreateFlashcardInput } from "@/lib/types";
+import { X, SendHorizonal, Sparkles, Bot, Loader2, Trash2, Check, FileStack, Pencil } from "lucide-react";
 import katex from "katex";
 
 /* ── tiny markdown renderer with KaTeX ──────────────────────── */
@@ -107,6 +110,8 @@ const TOOL_LABELS: Record<string, string> = {
   get_study_stats: "Pulling study stats",
   get_flashcard_detail: "Inspecting card details",
   get_review_history: "Reviewing your history",
+  create_flashcard: "Creating a flashcard",
+  propose_flashcards: "Preparing flashcards for review",
 };
 
 /* ── suggestion chips ────────────────────────────────────────── */
@@ -116,6 +121,13 @@ const SUGGESTIONS = [
   { label: "What's due today?", emoji: "\u{23F0}" },
   { label: "My hardest cards", emoji: "\u{1F525}" },
   { label: "Study tips", emoji: "\u{1F4A1}" },
+];
+
+const EDITOR_SUGGESTIONS = [
+  { label: "Create 5 cards on calculus", emoji: "\u{2728}" },
+  { label: "Generate cards on this topic", emoji: "\u{1F4DD}" },
+  { label: "Help me write this card", emoji: "\u{1F91D}" },
+  { label: "What's due today?", emoji: "\u{23F0}" },
 ];
 
 /* ── component ───────────────────────────────────────────────── */
@@ -140,6 +152,57 @@ export function AIChatPanel({ open, onClose }: AIChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Editor context & proposed cards
+  const editorContext = useAppStore((s) => s.aiEditorContext);
+  const pendingAiCards = useAppStore((s) => s.pendingAiCards);
+  const setPendingAiCards = useAppStore((s) => s.setPendingAiCards);
+  const [savingCards, setSavingCards] = useState(false);
+
+  // Register proposed card callback
+  useEffect(() => {
+    setOnProposedCards((cards) => {
+      setPendingAiCards(cards);
+    });
+    return () => setOnProposedCards(null);
+  }, [setPendingAiCards]);
+
+  const handleConfirmCards = useCallback(async () => {
+    if (pendingAiCards.length === 0) return;
+    setSavingCards(true);
+    try {
+      let created = 0;
+      for (const card of pendingAiCards) {
+        const input: CreateFlashcardInput = {
+          folder_id: card.folderId,
+          question_type: "latex",
+          question_content: card.question,
+          answer_type: "latex",
+          answer_content: card.answer,
+        };
+        await commands.createFlashcard(input);
+        created++;
+      }
+      setPendingAiCards([]);
+      // Add a confirmation message
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `Created **${created} flashcard${created !== 1 ? "s" : ""}** successfully! They're ready for review.`,
+        },
+      ]);
+    } catch (err) {
+      console.error("Failed to save cards:", err);
+    } finally {
+      setSavingCards(false);
+    }
+  }, [pendingAiCards, setPendingAiCards]);
+
+  const handleDismissCards = useCallback(() => {
+    setPendingAiCards([]);
+  }, [setPendingAiCards]);
+
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       if (scrollRef.current) {
@@ -150,7 +213,7 @@ export function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, loading, scrollToBottom]);
+  }, [messages, loading, pendingAiCards, scrollToBottom]);
 
   useEffect(() => {
     if (open) {
@@ -260,7 +323,7 @@ export function AIChatPanel({ open, onClose }: AIChatPanelProps) {
       {/* ── Messages ───────────────────────────────────── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 scroll-smooth">
         {messages.length === 0 && !loading ? (
-          <EmptyState onSuggestion={send} />
+          <EmptyState onSuggestion={send} editorContext={editorContext} />
         ) : (
           messages.map((msg, i) => (
             <MessageBubble
@@ -272,7 +335,30 @@ export function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         )}
 
         {loading && <ThinkingIndicator toolStatus={toolStatus} />}
+
+        {/* ── Proposed cards for confirmation ── */}
+        {pendingAiCards.length > 0 && (
+          <ProposedCardsPreview
+            cards={pendingAiCards}
+            onConfirm={handleConfirmCards}
+            onDismiss={handleDismissCards}
+            saving={savingCards}
+          />
+        )}
       </div>
+
+      {/* ── Editor context banner ─────────────────────── */}
+      {editorContext && (
+        <div className="border-t border-border/30 px-4 py-2 bg-primary/[0.03] flex items-center gap-2">
+          <Pencil className="h-3 w-3 text-primary/60 shrink-0" />
+          <span className="text-[11px] text-muted-foreground truncate">
+            {editorContext.isEditing ? "Editing" : "Creating"} card
+            {editorContext.folderName && (
+              <> in <strong className="text-foreground/80">{editorContext.folderName}</strong></>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* ── Input ──────────────────────────────────────── */}
       <div className="border-t border-border/50 px-4 py-3">
@@ -321,7 +407,12 @@ export function AIChatPanel({ open, onClose }: AIChatPanelProps) {
 
 /* ── Sub-components ──────────────────────────────────────────── */
 
-function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) {
+function EmptyState({ onSuggestion, editorContext }: {
+  onSuggestion: (text: string) => void;
+  editorContext?: { folderId: string | null; folderName: string | null; isEditing: boolean } | null;
+}) {
+  const suggestions = editorContext ? EDITOR_SUGGESTIONS : SUGGESTIONS;
+
   return (
     <div className="flex flex-col items-center justify-center h-full text-center px-6 pb-8 animate-fade-up">
       <div className="relative mb-5">
@@ -332,12 +423,16 @@ function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) 
           <Sparkles className="h-3 w-3 text-primary" />
         </div>
       </div>
-      <h3 className="text-sm font-bold mb-1">Your study companion</h3>
+      <h3 className="text-sm font-bold mb-1">
+        {editorContext ? "Card creation assistant" : "Your study companion"}
+      </h3>
       <p className="text-[12px] text-muted-foreground leading-relaxed mb-6 max-w-[260px]">
-        Ask me anything about your flashcards, study progress, or for help understanding a topic.
+        {editorContext
+          ? "I can help create flashcards, generate content, or bulk-create cards for a topic."
+          : "Ask me anything about your flashcards, study progress, or for help understanding a topic."}
       </p>
       <div className="flex flex-wrap justify-center gap-2">
-        {SUGGESTIONS.map((s) => (
+        {suggestions.map((s) => (
           <button
             key={s.label}
             onClick={() => onSuggestion(s.label)}
@@ -411,6 +506,81 @@ function ThinkingIndicator({ toolStatus }: { toolStatus: string | null }) {
             "Thinking..."
           )}
         </span>
+      </div>
+    </div>
+  );
+}
+
+function ProposedCardsPreview({
+  cards,
+  onConfirm,
+  onDismiss,
+  saving,
+}: {
+  cards: Array<{ question: string; answer: string; folderId: string | null }>;
+  onConfirm: () => void;
+  onDismiss: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="animate-fade-up rounded-2xl border border-primary/20 bg-primary/[0.03] p-3 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <FileStack className="h-4 w-4 text-primary" />
+        <span className="text-[13px] font-bold">
+          {cards.length} card{cards.length !== 1 ? "s" : ""} ready to create
+        </span>
+      </div>
+
+      <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+        {cards.map((card, i) => (
+          <div
+            key={i}
+            className="rounded-xl bg-background border border-border/40 px-3 py-2"
+          >
+            <p className="text-[12px] font-medium text-foreground/80 truncate">
+              <span className="text-primary/60 font-bold mr-1">Q:</span>
+              {card.question.slice(0, 100)}
+              {card.question.length > 100 && "..."}
+            </p>
+            {card.answer && (
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                <span className="text-success/60 font-bold mr-1">A:</span>
+                {card.answer.slice(0, 100)}
+                {card.answer.length > 100 && "..."}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={onConfirm}
+          disabled={saving}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-[12px] font-bold",
+            "bg-primary text-white hover:opacity-90 transition-opacity",
+            saving && "opacity-60"
+          )}
+        >
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check className="h-3.5 w-3.5" />
+          )}
+          {saving ? "Saving..." : "Create All"}
+        </button>
+        <button
+          onClick={onDismiss}
+          disabled={saving}
+          className={cn(
+            "flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-[12px] font-medium",
+            "bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          )}
+        >
+          <X className="h-3.5 w-3.5" />
+          Dismiss
+        </button>
       </div>
     </div>
   );

@@ -36,12 +36,13 @@ pub async fn ocr_image(
         _ => "image/png",
     };
 
-    let prompt = "You are a math OCR system. Convert the math in this image to LaTeX.\n\n\
+    let prompt = "You are a math OCR system. Convert the content of this image to text with LaTeX math.\n\n\
         Rules:\n\
-        1. Use standard LaTeX math notation (e.g., \\frac{a}{b}, \\int, \\sum)\n\
-        2. If there are multiple lines, use \\begin{align*} ... \\end{align*}\n\
-        3. If you cannot read part of the expression, use \\text{[illegible]}\n\
-        4. Return ONLY the LaTeX code, no explanations or delimiters";
+        1. Use $...$ around inline math expressions (e.g., $\\frac{a}{b}$, $\\int_0^1 x^2 \\, dx$)\n\
+        2. Use $$...$$ for display math on its own line\n\
+        3. Write regular text OUTSIDE of dollar signs\n\
+        4. If you cannot read part, use [illegible]\n\
+        5. Return ONLY the content, no explanations or code fences";
 
     let response = call_llm_vision(&config, prompt, &base64_image, mime_type).await?;
     Ok(response.trim().to_string())
@@ -179,18 +180,22 @@ pub async fn generate_answer(
         };
 
         let prompt = "Look at this flashcard question image. Provide a clear, concise answer.\n\n\
-            - If the question involves math: solve it and write the answer using LaTeX notation \
-            (e.g., \\frac{a}{b}, \\int, \\sum). Use \\text{} for any plain text mixed with math.\n\
-            - If the question is non-math (definitions, vocab, history, etc.): answer in plain text.\n\n\
-            Return ONLY the answer. No explanations, no markdown, no code fences.";
+            FORMATTING RULES:\n\
+            - Use $...$ around inline math expressions (e.g., $\\frac{a}{b}$, $\\int_0^1 x^2 \\, dx$)\n\
+            - Use $$...$$ for display math on its own line\n\
+            - Write regular text outside of dollar signs — NEVER put entire sentences inside $...$\n\
+            - If non-math (definitions, vocab, etc.): answer in plain text without dollar signs\n\n\
+            Return ONLY the answer. No explanations, no markdown code fences.";
         call_llm_vision(&config, prompt, &base64_image, mime_type).await
     } else {
         let prompt = format!(
             "Answer this flashcard question. Provide a clear, concise answer.\n\n\
-             - If the question involves math: solve it and use LaTeX notation. \
-             Use \\text{{}} for any plain text mixed with math.\n\
-             - If non-math: answer in plain text.\n\n\
-             Return ONLY the answer. No explanations, no markdown, no code fences.\n\nQuestion: {}",
+             FORMATTING RULES:\n\
+             - Use $...$ around inline math expressions (e.g., $\\frac{{a}}{{b}}$, $x^2 + 3x$)\n\
+             - Use $$...$$ for display math on its own line\n\
+             - Write regular text outside of dollar signs — NEVER put entire sentences inside $...$\n\
+             - If non-math: answer in plain text without dollar signs\n\n\
+             Return ONLY the answer. No explanations, no markdown code fences.\n\nQuestion: {}",
             question_content
         );
         call_llm_text(&config, &prompt).await
@@ -222,17 +227,22 @@ pub async fn generate_question(
         };
 
         let prompt = "Look at this flashcard answer image. Generate a clear, concise question that this answers.\n\n\
-            - If the answer involves math: write the question using LaTeX notation. \
-            Use \\text{} for plain text mixed with math.\n\
-            - If non-math: write the question in plain text.\n\n\
-            Return ONLY the question. No explanations, no markdown, no code fences.";
+            FORMATTING RULES:\n\
+            - Use $...$ around inline math expressions (e.g., $\\frac{a}{b}$, $\\int_0^1 x^2 \\, dx$)\n\
+            - Use $$...$$ for display math on its own line\n\
+            - Write regular text outside of dollar signs — NEVER put entire sentences inside $...$\n\
+            - If non-math: write the question in plain text without dollar signs\n\n\
+            Return ONLY the question. No explanations, no markdown code fences.";
         call_llm_vision(&config, prompt, &base64_image, mime_type).await
     } else {
         let prompt = format!(
             "Given this answer, generate a clear, concise flashcard question.\n\n\
-             - If the answer involves math: use LaTeX notation. Use \\text{{}} for plain text mixed with math.\n\
-             - If non-math: write in plain text.\n\n\
-             Return ONLY the question. No explanations, no markdown, no code fences.\n\nAnswer: {}",
+             FORMATTING RULES:\n\
+             - Use $...$ around inline math expressions (e.g., $\\frac{{a}}{{b}}$, $x^2 + 3x$)\n\
+             - Use $$...$$ for display math on its own line\n\
+             - Write regular text outside of dollar signs — NEVER put entire sentences inside $...$\n\
+             - If non-math: write in plain text without dollar signs\n\n\
+             Return ONLY the question. No explanations, no markdown code fences.\n\nAnswer: {}",
             answer_content
         );
         call_llm_text(&config, &prompt).await
@@ -263,15 +273,15 @@ pub async fn convert_image_to_text(
 
     let prompt = format!(
         "You are converting a flashcard {} image to text. Analyze the image and respond appropriately:\n\n\
-         - If the image contains math equations, formulas, or mathematical problems: \
-         convert them to LaTeX notation (e.g., \\frac{{a}}{{b}}, \\int, \\sum). \
-         For multiple lines of math, use \\begin{{align*}} ... \\end{{align*}}.\n\
-         - If the image contains a MIX of plain text and math: \
-         use \\text{{}} for the plain text parts and LaTeX for the math parts. \
-         For example: \\text{{Find the derivative of }} f(x) = x^2 + 3x\n\
+         FORMATTING RULES:\n\
+         - Use $...$ around inline math expressions (e.g., $\\frac{{a}}{{b}}$, $\\int_0^1 x^2 \\, dx$)\n\
+         - Use $$...$$ for display math on its own line\n\
+         - Write regular text OUTSIDE of dollar signs — NEVER put entire sentences inside $...$\n\
+         - For mixed content: combine plain text and $math$ naturally. \
+         Example: What is the derivative of $f(x) = x^2 + 3x$?\n\
          - If the image contains ONLY plain text (definitions, vocabulary, history, etc.): \
-         return the text as-is, cleanly formatted. Do NOT wrap plain text in LaTeX commands.\n\n\
-         Return ONLY the converted content. No explanations, no markdown delimiters, no code fences.",
+         return the text as-is without any dollar signs.\n\n\
+         Return ONLY the converted content. No explanations, no markdown code fences.",
         role
     );
 

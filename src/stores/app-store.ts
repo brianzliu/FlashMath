@@ -27,6 +27,22 @@ interface AppState {
   // AI chat panel
   aiPanelOpen: boolean;
   setAiPanelOpen: (open: boolean) => void;
+
+  // AI editor context — lets the chat panel know when user is in card editor
+  aiEditorContext: {
+    folderId: string | null;
+    folderName: string | null;
+    isEditing: boolean;
+  } | null;
+  setAiEditorContext: (ctx: AppState["aiEditorContext"]) => void;
+
+  // Pending AI-generated cards awaiting user confirmation
+  pendingAiCards: Array<{
+    question: string;
+    answer: string;
+    folderId: string | null;
+  }>;
+  setPendingAiCards: (cards: AppState["pendingAiCards"]) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -71,4 +87,10 @@ export const useAppStore = create<AppState>((set) => ({
 
   aiPanelOpen: false,
   setAiPanelOpen: (open) => set({ aiPanelOpen: open }),
+
+  aiEditorContext: null,
+  setAiEditorContext: (ctx) => set({ aiEditorContext: ctx }),
+
+  pendingAiCards: [],
+  setPendingAiCards: (cards) => set({ pendingAiCards: cards }),
 }));

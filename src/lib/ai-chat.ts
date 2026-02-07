@@ -8,7 +8,7 @@
  */
 
 import * as commands from "./commands";
-import type { Flashcard, Folder, StudyStats } from "./types";
+import type { Flashcard, Folder, StudyStats, CreateFlashcardInput } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -119,9 +119,62 @@ const TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "create_flashcard",
+      description:
+        "Create a single flashcard in a specific folder. Use $...$ for inline math and $$...$$ for display math in question/answer text. The card is saved immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          folder_id: { type: "string", description: "The folder ID to create the card in" },
+          question: { type: "string", description: "The question text (use $...$ for math)" },
+          answer: { type: "string", description: "The answer text (use $...$ for math)" },
+        },
+        required: ["folder_id", "question"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_flashcards",
+      description:
+        "Propose multiple flashcards for the user to review before creating them. Returns a preview. The user must confirm before cards are saved. Use this when the user asks to create many cards at once or when bulk-generating cards on a topic.",
+      parameters: {
+        type: "object",
+        properties: {
+          folder_id: { type: "string", description: "The folder ID to create cards in" },
+          cards: {
+            type: "array",
+            description: "Array of proposed flashcards",
+            items: {
+              type: "object",
+              properties: {
+                question: { type: "string", description: "The question text" },
+                answer: { type: "string", description: "The answer text" },
+              },
+              required: ["question", "answer"],
+            },
+          },
+        },
+        required: ["folder_id", "cards"],
+      },
+    },
+  },
 ];
 
 // ── Tool executor ──────────────────────────────────────────────────
+
+// Callback for proposed cards that need user confirmation
+let _onProposedCards: ((cards: Array<{ question: string; answer: string; folderId: string | null }>) => void) | null = null;
+
+export function setOnProposedCards(
+  cb: ((cards: Array<{ question: string; answer: string; folderId: string | null }>) => void) | null
+) {
+  _onProposedCards = cb;
+}
 
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   try {
@@ -217,6 +270,41 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         return JSON.stringify(reviews.slice(0, 20), null, 2);
       }
 
+      case "create_flashcard": {
+        const input: CreateFlashcardInput = {
+          folder_id: (args.folder_id as string) || null,
+          question_type: "latex",
+          question_content: args.question as string,
+          answer_type: args.answer ? "latex" : undefined,
+          answer_content: args.answer as string | undefined,
+        };
+        const card = await commands.createFlashcard(input);
+        return JSON.stringify({
+          success: true,
+          card_id: card.id,
+          message: "Flashcard created successfully",
+        });
+      }
+
+      case "propose_flashcards": {
+        const proposedCards = (args.cards as Array<{ question: string; answer: string }>).map(
+          (c) => ({
+            question: c.question,
+            answer: c.answer,
+            folderId: (args.folder_id as string) || null,
+          })
+        );
+        // Notify the UI about proposed cards
+        if (_onProposedCards) {
+          _onProposedCards(proposedCards);
+        }
+        return JSON.stringify({
+          success: true,
+          count: proposedCards.length,
+          message: `Proposed ${proposedCards.length} cards. The user will review and confirm them in the UI.`,
+        });
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -269,11 +357,22 @@ function normaliseResponse(raw: Record<string, unknown>): NormalisedResponse {
 
 // ── Main chat function ─────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are FlashMath AI, a helpful study assistant embedded in a flashcard app. You have access to tools that let you look up the user's decks, flashcards, review history, and study statistics.
+const SYSTEM_PROMPT = `You are FlashMath AI, a helpful study assistant embedded in a flashcard app. You have access to tools that let you look up the user's decks, flashcards, review history, and study statistics. You can also CREATE flashcards.
 
 When the user asks about their flashcards, study progress, or needs help understanding a concept from their cards, use the tools to fetch real data first, then respond with specific, accurate information.
 
-Keep responses concise and helpful. Use markdown formatting sparingly (bold for emphasis, lists when appropriate). When discussing math, use LaTeX notation.
+CARD CREATION:
+- When the user asks to create a single card, use create_flashcard to save it immediately.
+- When the user asks to create many cards or generate cards on a topic, use propose_flashcards. This shows the user a preview for confirmation before saving.
+- Always look up the user's folders first so you know which folder_id to use.
+
+MATH FORMATTING:
+- Use $...$ for inline math (e.g. "What is $\\int_0^1 x^2 \\, dx$?")
+- Use $$...$$ for display math on its own line
+- NEVER put entire sentences inside dollar signs — only math expressions
+- Regular text goes outside dollar signs
+
+Keep responses concise and helpful. Use markdown formatting sparingly (bold for emphasis, lists when appropriate).
 
 If the user asks you to explain a concept or solve a problem from one of their flashcards, do so clearly and step-by-step.`;
 

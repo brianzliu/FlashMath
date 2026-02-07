@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { TIMER_PRESETS } from "@/lib/constants";
 import type { CreateFlashcardInput } from "@/lib/types";
@@ -7,13 +7,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { LaTeXRenderer } from "@/components/LaTeXRenderer";
+import { LaTeXToolbar } from "@/components/LaTeXToolbar";
 import { ImageDisplay, isImagePath } from "@/components/ImageDisplay";
 import { cn } from "@/lib/utils";
 import {
   Clock, Image, Type, Camera, FileUp, ImagePlus, X,
-  Sparkles, Loader2, ArrowRightLeft,
+  Sparkles, Loader2, ArrowRightLeft, Wand2, Bot,
 } from "lucide-react";
 import * as commands from "@/lib/commands";
+import { useAppStore } from "@/stores/app-store";
 
 interface FlashcardEditorProps {
   initialData?: Partial<CreateFlashcardInput>;
@@ -65,6 +67,8 @@ export function FlashcardEditor({
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const answerFileInputRef = useRef<HTMLInputElement>(null);
+  const questionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const answerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // LLM generation states
   const [generatingAnswer, setGeneratingAnswer] = useState(false);
@@ -73,6 +77,13 @@ export function FlashcardEditor({
   const [convertingAnswer, setConvertingAnswer] = useState(false);
   const [assessedTime, setAssessedTime] = useState<number | null>(null);
   const [assessingTime, setAssessingTime] = useState(false);
+
+  // AI inline card generation
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [showAiPrompt, setShowAiPrompt] = useState(false);
+  const setAiPanelOpen = useAppStore((s) => s.setAiPanelOpen);
+  const setAiEditorContext = useAppStore((s) => s.setAiEditorContext);
 
   useEffect(() => {
     if (!initialData?.question_content) return;
@@ -135,6 +146,72 @@ export function FlashcardEditor({
     setAnswerContent("");
     setAnswerType("latex");
   };
+
+  /** Insert a LaTeX snippet at the cursor position in the given textarea */
+  const insertAtCursor = useCallback(
+    (
+      textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+      content: string,
+      setContent: (val: string) => void,
+      snippet: string
+    ) => {
+      const el = textareaRef.current;
+      if (!el) {
+        // Fallback: append at end
+        setContent(content + snippet);
+        return;
+      }
+      const start = el.selectionStart ?? content.length;
+      const end = el.selectionEnd ?? content.length;
+      const before = content.slice(0, start);
+      const after = content.slice(end);
+      const newContent = before + snippet + after;
+      setContent(newContent);
+      // Restore cursor position after the inserted snippet
+      requestAnimationFrame(() => {
+        el.focus();
+        const cursorPos = start + snippet.length;
+        el.setSelectionRange(cursorPos, cursorPos);
+      });
+    },
+    []
+  );
+
+  const handleInsertQuestion = useCallback(
+    (snippet: string) => {
+      insertAtCursor(questionTextareaRef, questionContent, setQuestionContent, snippet);
+    },
+    [questionContent, insertAtCursor]
+  );
+
+  const handleInsertAnswer = useCallback(
+    (snippet: string) => {
+      insertAtCursor(answerTextareaRef, answerContent, setAnswerContent, snippet);
+    },
+    [answerContent, insertAtCursor]
+  );
+
+  /** Handle drop of LaTeX symbols from toolbar onto textarea */
+  const handleSymbolDrop = useCallback(
+    (
+      e: React.DragEvent,
+      textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+      content: string,
+      setContent: (val: string) => void,
+      setType: (val: "image") => void
+    ) => {
+      // Check if this is a LaTeX symbol (text/plain from toolbar)
+      const snippet = e.dataTransfer.getData("text/plain");
+      if (snippet && snippet.startsWith("\\")) {
+        e.preventDefault();
+        insertAtCursor(textareaRef, content, setContent, snippet);
+        return;
+      }
+      // Otherwise, handle as image drop
+      handleImageDrop(e, setContent, setType);
+    },
+    [insertAtCursor]
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,8 +324,186 @@ export function FlashcardEditor({
     }
   };
 
+  /** AI inline generate — creates a full Q/A card from a topic/prompt */
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim() || aiGenerating) return;
+    setAiGenerating(true);
+    try {
+      const prompt = aiPrompt.trim();
+      const messages = [
+        {
+          role: "system",
+          content: `You are a flashcard creation assistant for a math study app called FlashMath. Given a topic or prompt, generate ONE flashcard with a question and answer.
+
+IMPORTANT FORMATTING RULES:
+- Use plain text for regular words and sentences
+- Use $...$ delimiters for inline math (e.g. "What is $\\int_0^1 x^2 \\, dx$?")
+- Use $$...$$ for display math on its own line
+- NEVER write an entire sentence inside dollar signs
+- Mix plain text and math naturally
+
+Respond in this exact JSON format:
+{"question": "...", "answer": "..."}
+
+No other text, just the JSON.`,
+        },
+        { role: "user", content: prompt },
+      ];
+      const raw = await commands.chatCompletion(messages);
+      // Parse response
+      const choices = (raw as Record<string, unknown>).choices as Array<{
+        message: { content: string };
+      }> | undefined;
+      const contentBlocks = (raw as Record<string, unknown>).content as Array<{
+        type: string;
+        text?: string;
+      }> | undefined;
+
+      let text = "";
+      if (choices?.[0]?.message?.content) {
+        text = choices[0].message.content;
+      } else if (contentBlocks) {
+        text = contentBlocks
+          .filter((b) => b.type === "text")
+          .map((b) => b.text || "")
+          .join("");
+      }
+
+      // Extract JSON from response (handle markdown code blocks)
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.question) {
+          setQuestionType("latex");
+          setQuestionContent(parsed.question.trim());
+        }
+        if (parsed.answer) {
+          setHasAnswer(true);
+          setAnswerType("latex");
+          setAnswerContent(parsed.answer.trim());
+        }
+        setShowAiPrompt(false);
+        setAiPrompt("");
+      }
+    } catch (err) {
+      console.error("AI card generation failed:", err);
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  /** Open AI chat panel with editor context */
+  const handleOpenAiChat = () => {
+    // Find folder name from global state
+    const folders = useAppStore.getState().folders;
+    const currentFolderId = folderId || initialData?.folder_id || null;
+    const folderName = currentFolderId
+      ? folders.find((f) => f.id === currentFolderId)?.name || null
+      : null;
+
+    setAiEditorContext({
+      folderId: currentFolderId,
+      folderName,
+      isEditing: Boolean(initialData?.question_content),
+    });
+    setAiPanelOpen(true);
+  };
+
+  // Set editor context on mount and clear on unmount
+  useEffect(() => {
+    const folders = useAppStore.getState().folders;
+    const currentFolderId = folderId || initialData?.folder_id || null;
+    const folderName = currentFolderId
+      ? folders.find((f) => f.id === currentFolderId)?.name || null
+      : null;
+    setAiEditorContext({
+      folderId: currentFolderId,
+      folderName,
+      isEditing: Boolean(initialData?.question_content),
+    });
+    return () => setAiEditorContext(null);
+  }, [folderId, initialData?.folder_id, initialData?.question_content, setAiEditorContext]);
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* AI Quick Actions */}
+      {!questionHasContent && !answerHasContent && (
+        <div className="space-y-3">
+          {!showAiPrompt ? (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAiPrompt(true)}
+                className="flex-1 border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
+              >
+                <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+                Generate Card with AI
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleOpenAiChat}
+                className="border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
+              >
+                <Bot className="h-3.5 w-3.5 mr-1.5" />
+                Ask AI
+              </Button>
+            </div>
+          ) : (
+            <Card className="border-primary/20 bg-primary/[0.02]">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10">
+                    <Wand2 className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <span className="text-sm font-bold">AI Card Generator</span>
+                  <button
+                    type="button"
+                    onClick={() => { setShowAiPrompt(false); setAiPrompt(""); }}
+                    className="ml-auto rounded-md p-1 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <Textarea
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="Describe the card you want, e.g. 'derivative of sin(x)', 'chain rule example', 'integration by parts'..."
+                  className="min-h-[72px] text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleAiGenerate();
+                    }
+                  }}
+                />
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleAiGenerate}
+                    disabled={aiGenerating || !aiPrompt.trim()}
+                  >
+                    {aiGenerating ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    {aiGenerating ? "Generating..." : "Generate"}
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground">
+                    Creates a Q&A flashcard from your prompt
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* Question */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -275,17 +530,23 @@ export function FlashcardEditor({
         {questionType === "latex" ? (
           <div className="space-y-2">
             <Textarea
+              ref={questionTextareaRef}
               value={questionContent}
               onChange={(e) => setQuestionContent(e.target.value)}
-              placeholder="Enter LaTeX, e.g. \int_0^1 x^2 \, dx"
+              placeholder="Type text with $math$ delimiters, e.g. What is $\int_0^1 x^2 \, dx$?"
               className="min-h-[120px] font-mono text-sm"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) =>
-                handleImageDrop(e, setQuestionContent, () =>
-                  setQuestionType("image")
+                handleSymbolDrop(
+                  e,
+                  questionTextareaRef,
+                  questionContent,
+                  setQuestionContent,
+                  () => setQuestionType("image")
                 )
               }
             />
+            <LaTeXToolbar onInsert={handleInsertQuestion} />
             {questionContent.trim() && (
               <Card className="bg-muted/30">
                 <CardContent className="p-4">
@@ -449,17 +710,23 @@ export function FlashcardEditor({
           {answerType === "latex" ? (
             <div className="space-y-2">
               <Textarea
+                ref={answerTextareaRef}
                 value={answerContent}
                 onChange={(e) => setAnswerContent(e.target.value)}
-                placeholder="Enter the answer in LaTeX"
+                placeholder="Type answer with $math$ delimiters"
                 className="min-h-[100px] font-mono text-sm"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) =>
-                  handleImageDrop(e, setAnswerContent, () =>
-                    setAnswerType("image")
+                  handleSymbolDrop(
+                    e,
+                    answerTextareaRef,
+                    answerContent,
+                    setAnswerContent,
+                    () => setAnswerType("image")
                   )
                 }
               />
+              <LaTeXToolbar onInsert={handleInsertAnswer} />
               {answerContent.trim() && (
                 <Card className="bg-muted/30">
                   <CardContent className="p-4">
@@ -640,7 +907,7 @@ export function FlashcardEditor({
         >
           {saving ? "Saving..." : "Save Card"}
         </Button>
-        <Button type="button" variant="secondary" onClick={() => history.back()}>
+        <Button type="button" variant="secondary" onClick={() => navigate(-1)}>
           Cancel
         </Button>
       </div>
