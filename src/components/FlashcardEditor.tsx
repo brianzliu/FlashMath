@@ -73,13 +73,6 @@ export function FlashcardEditor({
   const [assessedTime, setAssessedTime] = useState<number | null>(null);
   const [assessingTime, setAssessingTime] = useState(false);
 
-  // LaTeX suggestion state
-  const [checkingLatex, setCheckingLatex] = useState(false);
-  const [latexSuggestion, setLatexSuggestion] = useState<{
-    question?: string;
-    answer?: string;
-  } | null>(null);
-
   // AI inline card generation
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -180,9 +173,11 @@ export function FlashcardEditor({
     setAnswerType("latex");
   };
 
-  const doSave = (q: string, a: string) => {
-    const qHas = q.trim().length > 0;
-    const aHas = a.trim().length > 0;
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!questionContent.trim() && !answerContent.trim()) return;
+
+    const aHas = answerContent.trim().length > 0;
     const timerSeconds =
       timerMode === "llm"
         ? (assessedTime || 300)
@@ -193,88 +188,12 @@ export function FlashcardEditor({
     onSave({
       folder_id: initialData?.folder_id || null,
       question_type: questionType,
-      question_content: q,
+      question_content: questionContent,
       answer_type: aHas ? answerType : undefined,
-      answer_content: aHas ? a : undefined,
+      answer_content: aHas ? answerContent : undefined,
       timer_mode: timerMode,
       timer_seconds: timerSeconds,
     });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!questionContent.trim() && !answerContent.trim()) return;
-
-    // Only check latex for text-type fields that have content
-    const qIsText = questionType === "latex" && questionContent.trim();
-    const aIsText = answerType === "latex" && answerContent.trim();
-
-    if (!qIsText && !aIsText) {
-      doSave(questionContent, answerContent);
-      return;
-    }
-
-    setCheckingLatex(true);
-    try {
-      const parts: string[] = [];
-      if (qIsText) parts.push(`Question: ${questionContent}`);
-      if (aIsText) parts.push(`Answer: ${answerContent}`);
-
-      const messages = [
-        {
-          role: "system",
-          content: `You are a LaTeX formatting assistant. Given flashcard text, determine if any mathematical expressions need to be wrapped in LaTeX delimiters ($...$ for inline, $$...$$ for display).
-
-RULES:
-- Only add LaTeX wrappers where math is present but NOT already wrapped
-- Text that already has $...$ or $$...$$ delimiters should be left as-is
-- Regular English text should NOT be wrapped in LaTeX
-- Common things to wrap: variables (x, y), equations, fractions, integrals, Greek letters, exponents, subscripts, operators like ±, ≤, ≥, ≠, etc.
-- If the text is already properly formatted or has no math, respond with exactly: {"needs_fix": false}
-- If fixes are needed, respond with the corrected versions:
-  {"needs_fix": true, "question": "corrected question", "answer": "corrected answer"}
-- Only include "question" or "answer" fields for the ones you actually changed
-- Respond ONLY with JSON, nothing else`,
-        },
-        { role: "user", content: parts.join("\n\n") },
-      ];
-
-      const raw = await commands.chatCompletion(messages);
-      const choices = (raw as Record<string, unknown>).choices as Array<{
-        message: { content: string };
-      }> | undefined;
-      const contentBlocks = (raw as Record<string, unknown>).content as Array<{
-        type: string;
-        text?: string;
-      }> | undefined;
-
-      let text = "";
-      if (choices?.[0]?.message?.content) {
-        text = choices[0].message.content;
-      } else if (contentBlocks) {
-        text = contentBlocks
-          .filter((b) => b.type === "text")
-          .map((b) => b.text || "")
-          .join("");
-      }
-
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.needs_fix && (parsed.question || parsed.answer)) {
-          setLatexSuggestion({
-            question: parsed.question || undefined,
-            answer: parsed.answer || undefined,
-          });
-          setCheckingLatex(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.error("LaTeX check failed, saving as-is:", err);
-    }
-    setCheckingLatex(false);
-    doSave(questionContent, answerContent);
   };
 
   const handleImageDrop = (
@@ -868,94 +787,13 @@ No other text, just the JSON.`,
         )}
       </section>
 
-      {/* LaTeX suggestion dialog */}
-      {latexSuggestion && (
-        <Card className="border-primary/30 bg-primary/[0.02]">
-          <CardContent className="p-4 space-y-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <span className="text-sm font-bold">LaTeX formatting suggested</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setLatexSuggestion(null);
-                  doSave(questionContent, answerContent);
-                }}
-                className="ml-auto text-xs text-muted-foreground hover:text-foreground"
-              >
-                Skip
-              </button>
-            </div>
-
-            {latexSuggestion.question && (
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Question
-                </p>
-                <Card className="bg-muted/30">
-                  <CardContent className="p-3">
-                    <LaTeXRenderer content={latexSuggestion.question} />
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {latexSuggestion.answer && (
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Answer
-                </p>
-                <Card className="bg-muted/30">
-                  <CardContent className="p-3">
-                    <LaTeXRenderer content={latexSuggestion.answer} />
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => {
-                  const newQ = latexSuggestion.question || questionContent;
-                  const newA = latexSuggestion.answer || answerContent;
-                  setQuestionContent(newQ);
-                  setAnswerContent(newA);
-                  setLatexSuggestion(null);
-                  doSave(newQ, newA);
-                }}
-              >
-                Use LaTeX version
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setLatexSuggestion(null);
-                  doSave(questionContent, answerContent);
-                }}
-              >
-                Keep original
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Actions */}
       <div className="flex gap-3 pt-2">
         <Button
           type="submit"
-          disabled={saving || checkingLatex || (!questionContent.trim() && !answerContent.trim())}
+          disabled={saving || (!questionContent.trim() && !answerContent.trim())}
         >
-          {checkingLatex ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-              Checking...
-            </>
-          ) : saving ? "Saving..." : "Save Card"}
+          {saving ? "Saving..." : "Save Card"}
         </Button>
         <Button type="button" variant="secondary" onClick={() => navigate(-1)}>
           Cancel
