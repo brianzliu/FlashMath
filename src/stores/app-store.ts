@@ -43,6 +43,17 @@ interface AppState {
     folderId: string | null;
   }>;
   setPendingAiCards: (cards: AppState["pendingAiCards"]) => void;
+
+  // Editor field callbacks — lets AI agent write to the open card editor in real time
+  editorCallbacks: {
+    setQuestion: (content: string) => void;
+    setAnswer: (content: string) => void;
+    setTimerMode: (mode: string) => void;
+    setTimerSeconds: (minutes: number, seconds: number) => void;
+    getQuestion: () => string;
+    getAnswer: () => string;
+  } | null;
+  setEditorCallbacks: (cbs: AppState["editorCallbacks"]) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -93,4 +104,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   pendingAiCards: [],
   setPendingAiCards: (cards) => set({ pendingAiCards: cards }),
+
+  editorCallbacks: null,
+  setEditorCallbacks: (cbs) => set({ editorCallbacks: cbs }),
 }));

@@ -112,6 +112,11 @@ const TOOL_LABELS: Record<string, string> = {
   get_review_history: "Reviewing your history",
   create_flashcard: "Creating a flashcard",
   propose_flashcards: "Preparing flashcards for review",
+  set_editor_question: "Writing question",
+  set_editor_answer: "Writing answer",
+  set_editor_timer: "Setting timer",
+  clear_editor_field: "Clearing field",
+  get_editor_content: "Reading editor",
 };
 
 /* ── suggestion chips ────────────────────────────────────────── */

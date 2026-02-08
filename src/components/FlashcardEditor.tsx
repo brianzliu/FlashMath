@@ -4,15 +4,13 @@ import { TIMER_PRESETS } from "@/lib/constants";
 import type { CreateFlashcardInput } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { LaTeXRenderer } from "@/components/LaTeXRenderer";
-import { LaTeXToolbar } from "@/components/LaTeXToolbar";
 import { ImageDisplay, isImagePath } from "@/components/ImageDisplay";
 import { cn } from "@/lib/utils";
 import {
   Clock, Image, Type, Camera, FileUp, ImagePlus, X,
-  Sparkles, Loader2, ArrowRightLeft, Wand2, Bot,
+  Sparkles, Loader2, ArrowRightLeft, Wand2,
 } from "lucide-react";
 import * as commands from "@/lib/commands";
 import { useAppStore } from "@/stores/app-store";
@@ -40,9 +38,6 @@ export function FlashcardEditor({
   );
   const [questionContent, setQuestionContent] = useState(
     initialData?.question_content || ""
-  );
-  const [hasAnswer, setHasAnswer] = useState(
-    Boolean(initialData?.answer_content)
   );
   const [answerType, setAnswerType] = useState<"latex" | "image">(
     (initialData?.answer_type as "latex" | "image") || "latex"
@@ -78,12 +73,50 @@ export function FlashcardEditor({
   const [assessedTime, setAssessedTime] = useState<number | null>(null);
   const [assessingTime, setAssessingTime] = useState(false);
 
+  // LaTeX suggestion state
+  const [checkingLatex, setCheckingLatex] = useState(false);
+  const [latexSuggestion, setLatexSuggestion] = useState<{
+    question?: string;
+    answer?: string;
+  } | null>(null);
+
   // AI inline card generation
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
-  const setAiPanelOpen = useAppStore((s) => s.setAiPanelOpen);
   const setAiEditorContext = useAppStore((s) => s.setAiEditorContext);
+  const setEditorCallbacks = useAppStore((s) => s.setEditorCallbacks);
+
+  // Keep refs for stable callbacks
+  const questionContentRef = useRef(questionContent);
+  const answerContentRef = useRef(answerContent);
+  questionContentRef.current = questionContent;
+  answerContentRef.current = answerContent;
+
+  // Register editor callbacks so AI sidebar can write to fields in real time
+  useEffect(() => {
+    setEditorCallbacks({
+      setQuestion: (content: string) => {
+        setQuestionType("latex");
+        setQuestionContent(content);
+      },
+      setAnswer: (content: string) => {
+        setAnswerType("latex");
+        setAnswerContent(content);
+      },
+      setTimerMode: (mode: string) => {
+        setTimerMode(mode as "1min" | "5min" | "10min" | "llm" | "custom");
+      },
+      setTimerSeconds: (minutes: number, seconds: number) => {
+        setTimerMode("custom");
+        setCustomMinutes(minutes);
+        setCustomSeconds(seconds);
+      },
+      getQuestion: () => questionContentRef.current,
+      getAnswer: () => answerContentRef.current,
+    });
+    return () => setEditorCallbacks(null);
+  }, [setEditorCallbacks]);
 
   useEffect(() => {
     if (!initialData?.question_content) return;
@@ -147,76 +180,9 @@ export function FlashcardEditor({
     setAnswerType("latex");
   };
 
-  /** Insert a LaTeX snippet at the cursor position in the given textarea */
-  const insertAtCursor = useCallback(
-    (
-      textareaRef: React.RefObject<HTMLTextAreaElement | null>,
-      content: string,
-      setContent: (val: string) => void,
-      snippet: string
-    ) => {
-      const el = textareaRef.current;
-      if (!el) {
-        // Fallback: append at end
-        setContent(content + snippet);
-        return;
-      }
-      const start = el.selectionStart ?? content.length;
-      const end = el.selectionEnd ?? content.length;
-      const before = content.slice(0, start);
-      const after = content.slice(end);
-      const newContent = before + snippet + after;
-      setContent(newContent);
-      // Restore cursor position after the inserted snippet
-      requestAnimationFrame(() => {
-        el.focus();
-        const cursorPos = start + snippet.length;
-        el.setSelectionRange(cursorPos, cursorPos);
-      });
-    },
-    []
-  );
-
-  const handleInsertQuestion = useCallback(
-    (snippet: string) => {
-      insertAtCursor(questionTextareaRef, questionContent, setQuestionContent, snippet);
-    },
-    [questionContent, insertAtCursor]
-  );
-
-  const handleInsertAnswer = useCallback(
-    (snippet: string) => {
-      insertAtCursor(answerTextareaRef, answerContent, setAnswerContent, snippet);
-    },
-    [answerContent, insertAtCursor]
-  );
-
-  /** Handle drop of LaTeX symbols from toolbar onto textarea */
-  const handleSymbolDrop = useCallback(
-    (
-      e: React.DragEvent,
-      textareaRef: React.RefObject<HTMLTextAreaElement | null>,
-      content: string,
-      setContent: (val: string) => void,
-      setType: (val: "image") => void
-    ) => {
-      // Check if this is a LaTeX symbol (text/plain from toolbar)
-      const snippet = e.dataTransfer.getData("text/plain");
-      if (snippet && snippet.startsWith("\\")) {
-        e.preventDefault();
-        insertAtCursor(textareaRef, content, setContent, snippet);
-        return;
-      }
-      // Otherwise, handle as image drop
-      handleImageDrop(e, setContent, setType);
-    },
-    [insertAtCursor]
-  );
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!questionContent.trim()) return;
-
+  const doSave = (q: string, a: string) => {
+    const qHas = q.trim().length > 0;
+    const aHas = a.trim().length > 0;
     const timerSeconds =
       timerMode === "llm"
         ? (assessedTime || 300)
@@ -227,12 +193,88 @@ export function FlashcardEditor({
     onSave({
       folder_id: initialData?.folder_id || null,
       question_type: questionType,
-      question_content: questionContent,
-      answer_type: hasAnswer ? answerType : undefined,
-      answer_content: hasAnswer ? answerContent : undefined,
+      question_content: q,
+      answer_type: aHas ? answerType : undefined,
+      answer_content: aHas ? a : undefined,
       timer_mode: timerMode,
       timer_seconds: timerSeconds,
     });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!questionContent.trim() && !answerContent.trim()) return;
+
+    // Only check latex for text-type fields that have content
+    const qIsText = questionType === "latex" && questionContent.trim();
+    const aIsText = answerType === "latex" && answerContent.trim();
+
+    if (!qIsText && !aIsText) {
+      doSave(questionContent, answerContent);
+      return;
+    }
+
+    setCheckingLatex(true);
+    try {
+      const parts: string[] = [];
+      if (qIsText) parts.push(`Question: ${questionContent}`);
+      if (aIsText) parts.push(`Answer: ${answerContent}`);
+
+      const messages = [
+        {
+          role: "system",
+          content: `You are a LaTeX formatting assistant. Given flashcard text, determine if any mathematical expressions need to be wrapped in LaTeX delimiters ($...$ for inline, $$...$$ for display).
+
+RULES:
+- Only add LaTeX wrappers where math is present but NOT already wrapped
+- Text that already has $...$ or $$...$$ delimiters should be left as-is
+- Regular English text should NOT be wrapped in LaTeX
+- Common things to wrap: variables (x, y), equations, fractions, integrals, Greek letters, exponents, subscripts, operators like ±, ≤, ≥, ≠, etc.
+- If the text is already properly formatted or has no math, respond with exactly: {"needs_fix": false}
+- If fixes are needed, respond with the corrected versions:
+  {"needs_fix": true, "question": "corrected question", "answer": "corrected answer"}
+- Only include "question" or "answer" fields for the ones you actually changed
+- Respond ONLY with JSON, nothing else`,
+        },
+        { role: "user", content: parts.join("\n\n") },
+      ];
+
+      const raw = await commands.chatCompletion(messages);
+      const choices = (raw as Record<string, unknown>).choices as Array<{
+        message: { content: string };
+      }> | undefined;
+      const contentBlocks = (raw as Record<string, unknown>).content as Array<{
+        type: string;
+        text?: string;
+      }> | undefined;
+
+      let text = "";
+      if (choices?.[0]?.message?.content) {
+        text = choices[0].message.content;
+      } else if (contentBlocks) {
+        text = contentBlocks
+          .filter((b) => b.type === "text")
+          .map((b) => b.text || "")
+          .join("");
+      }
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.needs_fix && (parsed.question || parsed.answer)) {
+          setLatexSuggestion({
+            question: parsed.question || undefined,
+            answer: parsed.answer || undefined,
+          });
+          setCheckingLatex(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("LaTeX check failed, saving as-is:", err);
+    }
+    setCheckingLatex(false);
+    doSave(questionContent, answerContent);
   };
 
   const handleImageDrop = (
@@ -263,7 +305,6 @@ export function FlashcardEditor({
       }
       const result = await commands.generateAnswer(content, questionType);
       if (result) {
-        setHasAnswer(true);
         setAnswerType("latex");
         setAnswerContent(result.trim());
       }
@@ -378,7 +419,6 @@ No other text, just the JSON.`,
           setQuestionContent(parsed.question.trim());
         }
         if (parsed.answer) {
-          setHasAnswer(true);
           setAnswerType("latex");
           setAnswerContent(parsed.answer.trim());
         }
@@ -390,23 +430,6 @@ No other text, just the JSON.`,
     } finally {
       setAiGenerating(false);
     }
-  };
-
-  /** Open AI chat panel with editor context */
-  const handleOpenAiChat = () => {
-    // Find folder name from global state
-    const folders = useAppStore.getState().folders;
-    const currentFolderId = folderId || initialData?.folder_id || null;
-    const folderName = currentFolderId
-      ? folders.find((f) => f.id === currentFolderId)?.name || null
-      : null;
-
-    setAiEditorContext({
-      folderId: currentFolderId,
-      folderName,
-      isEditing: Boolean(initialData?.question_content),
-    });
-    setAiPanelOpen(true);
   };
 
   // Set editor context on mount and clear on unmount
@@ -426,88 +449,81 @@ No other text, just the JSON.`,
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* AI Quick Actions */}
-      {!questionHasContent && !answerHasContent && (
-        <div className="space-y-3">
-          {!showAiPrompt ? (
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAiPrompt(true)}
-                className="flex-1 border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
-              >
-                <Wand2 className="h-3.5 w-3.5 mr-1.5" />
-                Generate Card with AI
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleOpenAiChat}
-                className="border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
-              >
-                <Bot className="h-3.5 w-3.5 mr-1.5" />
-                Ask AI
-              </Button>
-            </div>
-          ) : (
-            <Card className="border-primary/20 bg-primary/[0.02]">
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10">
-                    <Wand2 className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <span className="text-sm font-bold">AI Card Generator</span>
-                  <button
-                    type="button"
-                    onClick={() => { setShowAiPrompt(false); setAiPrompt(""); }}
-                    className="ml-auto rounded-md p-1 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <Textarea
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Describe the card you want, e.g. 'derivative of sin(x)', 'chain rule example', 'integration by parts'..."
-                  className="min-h-[72px] text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleAiGenerate();
-                    }
-                  }}
-                />
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleAiGenerate}
-                    disabled={aiGenerating || !aiPrompt.trim()}
-                  >
-                    {aiGenerating ? (
-                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                    )}
-                    {aiGenerating ? "Generating..." : "Generate"}
-                  </Button>
-                  <span className="text-[11px] text-muted-foreground">
-                    Creates a Q&A flashcard from your prompt
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+      {/* AI generate prompt (inline, toggled by wand icon) */}
+      {showAiPrompt && (
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 px-3 py-2">
+          <Wand2 className="h-3.5 w-3.5 text-primary shrink-0" />
+          <input
+            type="text"
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="Describe a card, e.g. 'chain rule example'..."
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAiGenerate();
+              }
+              if (e.key === "Escape") {
+                setShowAiPrompt(false);
+                setAiPrompt("");
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleAiGenerate}
+            disabled={aiGenerating || !aiPrompt.trim()}
+            className="rounded-lg p-1.5 text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+          >
+            {aiGenerating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setShowAiPrompt(false); setAiPrompt(""); }}
+            className="rounded-lg p-1 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
 
       {/* Question */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold">Question</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold">Question</h3>
+            {!showAiPrompt && (
+              <button
+                type="button"
+                onClick={() => setShowAiPrompt(true)}
+                className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Generate card with AI"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {answerHasContent && !questionHasContent && (
+              <button
+                type="button"
+                onClick={handleGenerateQuestion}
+                disabled={generatingQuestion}
+                className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Generate question with AI"
+              >
+                {generatingQuestion ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-1.5">
             <TypeToggle
               value={questionType}
@@ -533,20 +549,15 @@ No other text, just the JSON.`,
               ref={questionTextareaRef}
               value={questionContent}
               onChange={(e) => setQuestionContent(e.target.value)}
-              placeholder="Type text with $math$ delimiters, e.g. What is $\int_0^1 x^2 \, dx$?"
+              placeholder="Type your question here, e.g. What is the integral of x^2 from 0 to 1?"
               className="min-h-[120px] font-mono text-sm"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) =>
-                handleSymbolDrop(
-                  e,
-                  questionTextareaRef,
-                  questionContent,
-                  setQuestionContent,
-                  () => setQuestionType("image")
+                handleImageDrop(e, setQuestionContent, () =>
+                  setQuestionType("image")
                 )
               }
             />
-            <LaTeXToolbar onInsert={handleInsertQuestion} />
             {questionContent.trim() && (
               <Card className="bg-muted/30">
                 <CardContent className="p-4">
@@ -647,47 +658,29 @@ No other text, just the JSON.`,
           </div>
         )}
 
-        {/* Generate Answer button — below question when it has content */}
-        {questionHasContent && !answerHasContent && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleGenerateAnswer}
-            disabled={generatingAnswer}
-            className="w-full border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
-          >
-            {generatingAnswer ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-            )}
-            {generatingAnswer ? "Generating answer..." : "Generate Answer with AI"}
-          </Button>
-        )}
       </section>
 
-      {/* Answer toggle */}
-      <div className="flex items-center gap-3 py-1">
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={hasAnswer}
-            onChange={(e) => setHasAnswer(e.target.checked)}
-            className="h-4 w-4 rounded border-border accent-primary"
-          />
-          <span className="text-sm font-medium">Include answer</span>
-        </label>
-        <Badge variant="secondary" className="text-[10px]">
-          Optional
-        </Badge>
-      </div>
-
       {/* Answer */}
-      {hasAnswer && (
-        <section className="space-y-3">
+      <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold">Answer</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold">Answer</h3>
+              {questionHasContent && !answerHasContent && (
+                <button
+                  type="button"
+                  onClick={handleGenerateAnswer}
+                  disabled={generatingAnswer}
+                  className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                  title="Generate answer with AI"
+                >
+                  {generatingAnswer ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-1.5">
               <TypeToggle
                 value={answerType}
@@ -713,20 +706,15 @@ No other text, just the JSON.`,
                 ref={answerTextareaRef}
                 value={answerContent}
                 onChange={(e) => setAnswerContent(e.target.value)}
-                placeholder="Type answer with $math$ delimiters"
+                placeholder="Type your answer here"
                 className="min-h-[100px] font-mono text-sm"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) =>
-                  handleSymbolDrop(
-                    e,
-                    answerTextareaRef,
-                    answerContent,
-                    setAnswerContent,
-                    () => setAnswerType("image")
+                  handleImageDrop(e, setAnswerContent, () =>
+                    setAnswerType("image")
                   )
                 }
               />
-              <LaTeXToolbar onInsert={handleInsertAnswer} />
               {answerContent.trim() && (
                 <Card className="bg-muted/30">
                   <CardContent className="p-4">
@@ -801,26 +789,7 @@ No other text, just the JSON.`,
             </div>
           )}
 
-          {/* Generate Question button — below answer when it has content but question is empty */}
-          {answerHasContent && !questionHasContent && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleGenerateQuestion}
-              disabled={generatingQuestion}
-              className="w-full border-dashed border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
-            >
-              {generatingQuestion ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-              )}
-              {generatingQuestion ? "Generating question..." : "Generate Question with AI"}
-            </Button>
-          )}
-        </section>
-      )}
+      </section>
 
       {/* Timer */}
       <section className="space-y-3">
@@ -899,13 +868,94 @@ No other text, just the JSON.`,
         )}
       </section>
 
+      {/* LaTeX suggestion dialog */}
+      {latexSuggestion && (
+        <Card className="border-primary/30 bg-primary/[0.02]">
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <span className="text-sm font-bold">LaTeX formatting suggested</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLatexSuggestion(null);
+                  doSave(questionContent, answerContent);
+                }}
+                className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+              >
+                Skip
+              </button>
+            </div>
+
+            {latexSuggestion.question && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Question
+                </p>
+                <Card className="bg-muted/30">
+                  <CardContent className="p-3">
+                    <LaTeXRenderer content={latexSuggestion.question} />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {latexSuggestion.answer && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Answer
+                </p>
+                <Card className="bg-muted/30">
+                  <CardContent className="p-3">
+                    <LaTeXRenderer content={latexSuggestion.answer} />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  const newQ = latexSuggestion.question || questionContent;
+                  const newA = latexSuggestion.answer || answerContent;
+                  setQuestionContent(newQ);
+                  setAnswerContent(newA);
+                  setLatexSuggestion(null);
+                  doSave(newQ, newA);
+                }}
+              >
+                Use LaTeX version
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setLatexSuggestion(null);
+                  doSave(questionContent, answerContent);
+                }}
+              >
+                Keep original
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Actions */}
       <div className="flex gap-3 pt-2">
         <Button
           type="submit"
-          disabled={saving || !questionContent.trim()}
+          disabled={saving || checkingLatex || (!questionContent.trim() && !answerContent.trim())}
         >
-          {saving ? "Saving..." : "Save Card"}
+          {checkingLatex ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              Checking...
+            </>
+          ) : saving ? "Saving..." : "Save Card"}
         </Button>
         <Button type="button" variant="secondary" onClick={() => navigate(-1)}>
           Cancel

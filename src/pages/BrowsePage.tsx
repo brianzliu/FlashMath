@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, Pencil, Trash2, FolderOpen } from "lucide-react";
+import { CardPreviewModal } from "@/components/CardPreviewModal";
 
 type SortMode = "newest" | "oldest" | "due-first" | "ease-asc" | "ease-desc";
 type FilterMode = "all" | "due" | "not-due" | "new";
@@ -21,6 +22,7 @@ export default function BrowsePage() {
   const [selectedFolder, setSelectedFolder] = useState<string>("all");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -197,7 +199,7 @@ export default function BrowsePage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {filteredCards.map((card) => {
+          {filteredCards.map((card, index) => {
             const isDue =
               !card.due_date || new Date(card.due_date) <= new Date();
             const folderName = card.folder_id
@@ -207,7 +209,8 @@ export default function BrowsePage() {
             return (
               <Card
                 key={card.id}
-                className="transition-all hover:shadow-sm hover:border-primary/20"
+                className="transition-all hover:shadow-sm hover:border-primary/20 cursor-pointer"
+                onClick={() => setPreviewIndex(index)}
               >
                 <CardContent className="p-4 flex items-center gap-4">
                   <div
@@ -262,7 +265,7 @@ export default function BrowsePage() {
                       ? "New"
                       : formatDate(card.due_date!)}
                   </Badge>
-                  <div className="flex gap-1 shrink-0">
+                  <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -287,6 +290,15 @@ export default function BrowsePage() {
             );
           })}
         </div>
+      )}
+
+      {previewIndex !== null && (
+        <CardPreviewModal
+          cards={filteredCards}
+          currentIndex={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onNavigate={setPreviewIndex}
+        />
       )}
     </div>
   );

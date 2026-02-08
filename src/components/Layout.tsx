@@ -4,7 +4,7 @@ import { Sidebar } from "./Sidebar";
 import { AIChatPanel } from "./AIChatPanel";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
-import { Sparkles } from "lucide-react";
+import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function Layout() {
@@ -53,27 +53,28 @@ export function Layout() {
     <div className="flex min-h-screen bg-background text-foreground antialiased">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+        {/* Top bar with AI toggle */}
+        <div className="sticky top-0 z-20 flex justify-end px-6 pt-3 pb-0 lg:px-10 pointer-events-none">
+          <button
+            onClick={() => setAiPanelOpen(!aiPanelOpen)}
+            className={cn(
+              "pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg transition-all",
+              aiPanelOpen
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+            title={aiPanelOpen ? "Close AI Chat" : "Open AI Chat"}
+          >
+            <Bot className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mx-auto max-w-5xl px-6 pb-8 lg:px-10">
           <Outlet />
         </div>
       </main>
 
       {/* AI Chat Panel — inline split view */}
       <AIChatPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} />
-
-      {/* AI Chat floating toggle */}
-      <button
-        onClick={() => setAiPanelOpen(true)}
-        className={cn(
-          "fixed bottom-6 right-6 z-30 flex h-12 w-12 items-center justify-center",
-          "rounded-2xl shadow-lg transition-all duration-300 hover:scale-105 active:scale-95",
-          "bg-gradient-to-br from-primary/90 to-primary hover:shadow-primary/25 hover:shadow-xl",
-          aiPanelOpen && "opacity-0 pointer-events-none scale-90"
-        )}
-        title="Open AI Chat"
-      >
-        <Sparkles className="h-5 w-5 text-white" />
-      </button>
     </div>
   );
 }

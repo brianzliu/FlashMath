@@ -14,6 +14,7 @@ import {
   TrendingUp,
   Clock,
   FolderOpen,
+  RotateCcw,
 } from "lucide-react";
 
 const DECK_EMOJIS = [
@@ -100,14 +101,24 @@ export default function Dashboard() {
               : "You're all caught up! Nice work."}
           </p>
         </div>
-        {totalDue > 0 && (
-          <Button asChild className="shrink-0">
-            <Link to="/study">
-              <Zap className="h-4 w-4 mr-1.5" />
-              Study Now ({totalDue})
-            </Link>
-          </Button>
-        )}
+        <div className="flex gap-2 shrink-0">
+          {totalDue > 0 && (
+            <Button asChild>
+              <Link to="/study">
+                <Zap className="h-4 w-4 mr-1.5" />
+                Study Now ({totalDue})
+              </Link>
+            </Button>
+          )}
+          {(stats?.total_cards ?? 0) > 0 && (
+            <Button variant="outline" asChild>
+              <Link to="/study?mode=all">
+                <RotateCcw className="h-4 w-4 mr-1.5" />
+                Review All
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4 stagger-children">

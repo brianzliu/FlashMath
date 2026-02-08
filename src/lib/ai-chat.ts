@@ -8,6 +8,7 @@
  */
 
 import * as commands from "./commands";
+import { useAppStore } from "@/stores/app-store";
 import type { Flashcard, Folder, StudyStats, CreateFlashcardInput } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -165,6 +166,79 @@ const TOOLS: ToolDef[] = [
   },
 ];
 
+// Editor tools — only included when user is in the card editor
+const EDITOR_TOOLS: ToolDef[] = [
+  {
+    type: "function",
+    function: {
+      name: "set_editor_question",
+      description:
+        "Set the question text in the currently open card editor. The user will see the change in real time. Use $...$ for inline math and $$...$$ for display math.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "The question text to set" },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_editor_answer",
+      description:
+        "Set the answer text in the currently open card editor. The user will see the change in real time. Use $...$ for inline math and $$...$$ for display math.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "The answer text to set" },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_editor_timer",
+      description:
+        "Set the timer for the currently open card editor. Mode can be '1min', '5min', '10min', or 'custom'. For custom, provide minutes and seconds.",
+      parameters: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["1min", "5min", "10min", "custom"], description: "Timer mode" },
+          minutes: { type: "number", description: "Custom timer minutes (only for custom mode)" },
+          seconds: { type: "number", description: "Custom timer seconds (only for custom mode)" },
+        },
+        required: ["mode"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "clear_editor_field",
+      description: "Clear the question or answer field in the currently open card editor.",
+      parameters: {
+        type: "object",
+        properties: {
+          field: { type: "string", enum: ["question", "answer", "both"], description: "Which field to clear" },
+        },
+        required: ["field"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_editor_content",
+      description: "Read the current question and answer text from the open card editor.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+];
+
 // ── Tool executor ──────────────────────────────────────────────────
 
 // Callback for proposed cards that need user confirmation
@@ -305,6 +379,51 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         });
       }
 
+      // ── Editor tools ──
+      case "set_editor_question": {
+        const cbs = useAppStore.getState().editorCallbacks;
+        if (!cbs) return JSON.stringify({ error: "No card editor is open" });
+        cbs.setQuestion(args.content as string);
+        return JSON.stringify({ success: true, message: "Question updated in editor" });
+      }
+
+      case "set_editor_answer": {
+        const cbs = useAppStore.getState().editorCallbacks;
+        if (!cbs) return JSON.stringify({ error: "No card editor is open" });
+        cbs.setAnswer(args.content as string);
+        return JSON.stringify({ success: true, message: "Answer updated in editor" });
+      }
+
+      case "set_editor_timer": {
+        const cbs = useAppStore.getState().editorCallbacks;
+        if (!cbs) return JSON.stringify({ error: "No card editor is open" });
+        const mode = args.mode as string;
+        if (mode === "custom") {
+          cbs.setTimerSeconds((args.minutes as number) || 0, (args.seconds as number) || 0);
+        } else {
+          cbs.setTimerMode(mode);
+        }
+        return JSON.stringify({ success: true, message: `Timer set to ${mode}` });
+      }
+
+      case "clear_editor_field": {
+        const cbs = useAppStore.getState().editorCallbacks;
+        if (!cbs) return JSON.stringify({ error: "No card editor is open" });
+        const field = args.field as string;
+        if (field === "question" || field === "both") cbs.setQuestion("");
+        if (field === "answer" || field === "both") cbs.setAnswer("");
+        return JSON.stringify({ success: true, message: `Cleared ${field}` });
+      }
+
+      case "get_editor_content": {
+        const cbs = useAppStore.getState().editorCallbacks;
+        if (!cbs) return JSON.stringify({ error: "No card editor is open" });
+        return JSON.stringify({
+          question: cbs.getQuestion(),
+          answer: cbs.getAnswer(),
+        });
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -382,13 +501,28 @@ export async function sendChat(
   history: ChatMessage[],
   onToolCall?: (name: string) => void
 ): Promise<ChatMessage> {
+  const editorOpen = useAppStore.getState().editorCallbacks !== null;
+  const editorCtx = useAppStore.getState().aiEditorContext;
+  const tools = editorOpen ? [...TOOLS, ...EDITOR_TOOLS] : TOOLS;
+
+  let systemPrompt = SYSTEM_PROMPT;
+  if (editorOpen) {
+    systemPrompt += `\n\nEDITOR MODE:
+The user currently has a card editor open${editorCtx?.folderName ? ` for deck "${editorCtx.folderName}"` : ""}. You have additional tools to directly edit the card:
+- set_editor_question / set_editor_answer: Write content into the question or answer fields (user sees changes in real time)
+- set_editor_timer: Set the card timer
+- clear_editor_field: Clear question, answer, or both fields
+- get_editor_content: Read what's currently in the editor
+Use these tools when the user asks you to help write, edit, or fill in their card content.`;
+  }
+
   const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     ...history,
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const raw = await commands.chatCompletion(messages, TOOLS);
+    const raw = await commands.chatCompletion(messages, tools);
     const { content, toolCalls } = normaliseResponse(raw);
 
     if (toolCalls.length === 0) {

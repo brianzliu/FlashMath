@@ -18,7 +18,9 @@ import {
   Calendar,
   Target,
   Clock,
+  RotateCcw,
 } from "lucide-react";
+import { CardPreviewModal } from "@/components/CardPreviewModal";
 
 export default function FolderPage() {
   const [searchParams] = useSearchParams();
@@ -30,6 +32,7 @@ export default function FolderPage() {
   const [folderLoading, setFolderLoading] = useState(true);
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const [deadlineInput, setDeadlineInput] = useState("");
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -165,6 +168,14 @@ export default function FolderPage() {
               </Link>
             </Button>
           )}
+          {flashcards.length > 0 && (
+            <Button variant="outline" asChild>
+              <Link to={`/study?folderId=${folderId}&mode=all`}>
+                <RotateCcw className="h-4 w-4 mr-1.5" />
+                Review All
+              </Link>
+            </Button>
+          )}
           <Button variant="secondary" asChild>
             <Link to={`/card?folderId=${folderId}`}>
               <Plus className="h-4 w-4 mr-1.5" />
@@ -287,16 +298,26 @@ export default function FolderPage() {
           </Card>
         ) : (
           <div className="space-y-2">
-            {flashcards.map((card) => (
+            {flashcards.map((card, index) => (
               <FlashcardRow
                 key={card.id}
                 card={card}
                 onDelete={() => handleDeleteCard(card.id)}
+                onClick={() => setPreviewIndex(index)}
               />
             ))}
           </div>
         )}
       </div>
+
+      {previewIndex !== null && (
+        <CardPreviewModal
+          cards={flashcards}
+          currentIndex={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onNavigate={setPreviewIndex}
+        />
+      )}
     </div>
   );
 }
@@ -304,14 +325,16 @@ export default function FolderPage() {
 function FlashcardRow({
   card,
   onDelete,
+  onClick,
 }: {
   card: Flashcard;
   onDelete: () => void;
+  onClick: () => void;
 }) {
   const isDue = !card.due_date || new Date(card.due_date) <= new Date();
 
   return (
-    <Card className="transition-all hover:shadow-sm hover:border-primary/20">
+    <Card className="transition-all hover:shadow-sm hover:border-primary/20 cursor-pointer" onClick={onClick}>
       <CardContent className="p-4 flex items-center gap-4">
         <div
           className={cn(
@@ -356,7 +379,7 @@ function FlashcardRow({
             ? "New"
             : formatDate(card.due_date!)}
         </Badge>
-        <div className="flex gap-1 shrink-0">
+        <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
             <Link to={`/card?id=${card.id}`}>
               <Pencil className="h-3.5 w-3.5" />

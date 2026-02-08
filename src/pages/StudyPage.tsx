@@ -21,6 +21,7 @@ export default function StudyPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const folderId = searchParams.get("folderId") || "all";
+  const reviewAll = searchParams.get("mode") === "all";
   const { folders } = useAppStore();
   const folder = folders.find((f) => f.id === folderId);
 
@@ -35,9 +36,16 @@ export default function StudyPage() {
 
   const loadDueCards = useCallback(async () => {
     try {
-      const cards = await commands.getDueFlashcards(
-        folderId === "all" ? undefined : folderId
-      );
+      let cards: Flashcard[];
+      if (reviewAll) {
+        cards = await commands.getFlashcards(
+          folderId === "all" ? undefined : folderId
+        );
+      } else {
+        cards = await commands.getDueFlashcards(
+          folderId === "all" ? undefined : folderId
+        );
+      }
       if (cards.length === 0) {
         setState("summary");
       } else {
@@ -49,7 +57,7 @@ export default function StudyPage() {
     } catch {
       setState("summary");
     }
-  }, [folderId]);
+  }, [folderId, reviewAll]);
 
   useEffect(() => {
     loadDueCards();
@@ -127,7 +135,10 @@ export default function StudyPage() {
     <div className="max-w-2xl mx-auto space-y-6 animate-fade-up">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold">{folder?.name || "All Cards"}</h1>
+          <h1 className="text-lg font-bold">
+            {folder?.name || "All Cards"}
+            {reviewAll && <span className="text-muted-foreground font-normal text-sm ml-2">Review</span>}
+          </h1>
           <p className="text-sm text-muted-foreground">
             Card {currentIndex + 1} of {dueCards.length}
           </p>
