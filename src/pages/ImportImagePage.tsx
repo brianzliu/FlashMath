@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnnotationCanvas, type Region } from "@/components/AnnotationCanvas";
 import { useAppStore } from "@/stores/app-store";
@@ -6,25 +6,51 @@ import * as commands from "@/lib/commands";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ImagePlus, Upload } from "lucide-react";
+import {
+  ImagePlus,
+  Upload,
+  Type,
+  Link as LinkIcon,
+  History,
+  RefreshCw,
+} from "lucide-react";
+import {
+  listRecentImports,
+  saveImageImport,
+  touchImport,
+  type ImageImportItem,
+} from "@/lib/import-library";
 
 export default function ImportImagePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const folderId = searchParams.get("folderId") || "";
   const { folders } = useAppStore();
+
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [regions, setRegions] = useState<Region[]>([]);
+
+  const [activeMode, setActiveMode] = useState<"question" | "answer" | null>("question");
   const [creating, setCreating] = useState(false);
   const [useOcr, setUseOcr] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [recentImports, setRecentImports] = useState<ImageImportItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const folderName = useMemo(
     () => folders.find((f) => f.id === folderId)?.name || "",
     [folders, folderId]
   );
+
+  const refreshRecentImports = useCallback(async () => {
+    const items = await listRecentImports("image", 8);
+    setRecentImports(items as ImageImportItem[]);
+  }, []);
+
+  useEffect(() => {
+    refreshRecentImports();
+  }, [refreshRecentImports]);
 
   const handleFileBlob = useCallback(async (file: File) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -40,7 +66,10 @@ export default function ImportImagePage() {
       setImagePath(null);
     }
     setImageUrl(dataUrl);
-  }, []);
+    setRegions([]);
+    await saveImageImport({ name: file.name, dataUrl });
+    await refreshRecentImports();
+  }, [refreshRecentImports]);
 
   const handleOpenFile = async () => {
     try {
@@ -61,32 +90,63 @@ export default function ImportImagePage() {
         setImagePath(pathStr);
         const dataUrl = await commands.getImageAsDataUrl(pathStr);
         setImageUrl(dataUrl);
+        setRegions([]);
+        await saveImageImport({
+          name: pathStr.split("/").pop() || "Imported image",
+          dataUrl,
+          sourcePath: pathStr,
+        });
+        await refreshRecentImports();
       }
     } catch {
       fileInputRef.current?.click();
     }
   };
 
+  const handleUseRecentImport = useCallback(
+    async (item: ImageImportItem) => {
+      setImageUrl(item.dataUrl);
+      setRegions([]);
+
+      if (item.sourcePath) {
+        setImagePath(item.sourcePath);
+      } else {
+        const savedPath = await commands.saveImageFromDataUrl(item.dataUrl);
+        setImagePath(savedPath);
+      }
+
+      await touchImport(item.id);
+      await refreshRecentImports();
+    },
+    [refreshRecentImports]
+  );
+
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFileBlob(file);
   };
 
-  const handleRegionsChange = useCallback((newRegions: Region[]) => {
-    setRegions(newRegions);
-  }, []);
+  const sortedQuestions = useMemo(() => regions.filter(r => r.role === 'question').sort((a, b) => a.y - b.y), [regions]);
+  const sortedAnswers = useMemo(() => regions.filter(r => r.role === 'answer').sort((a, b) => a.y - b.y), [regions]);
+
+  const getLabel = useCallback((region: Region) => {
+    if (region.role === 'question') {
+      const idx = sortedQuestions.findIndex(r => r.id === region.id);
+      return `Q${idx + 1}`;
+    } else {
+      const idx = sortedAnswers.findIndex(r => r.id === region.id);
+      return `A${idx + 1}`;
+    }
+  }, [sortedQuestions, sortedAnswers]);
 
   const handleCreateCards = async () => {
-    if (!folderId || !imagePath || regions.length === 0) return;
+    if (!folderId || !imagePath || sortedQuestions.length === 0) return;
     setCreating(true);
 
     try {
-      const questions = regions.filter((r) => r.role === "question");
-      const answers = regions.filter((r) => r.role === "answer");
-
-      for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
-        const a = answers[i];
+      for (let i = 0; i < sortedQuestions.length; i++) {
+        const q = sortedQuestions[i];
+        const a = sortedAnswers[i]; // May be undefined
 
         const qPath = await commands.cropRegion(
           imagePath,
@@ -115,7 +175,7 @@ export default function ImportImagePage() {
           try {
             qTitle = await commands.generateImageTitle(qPath);
           } catch {
-            /* fall back to null title */
+            /* fall back */
           }
         }
 
@@ -164,8 +224,6 @@ export default function ImportImagePage() {
     }
   };
 
-  const questionCount = regions.filter((r) => r.role === "question").length;
-
   if (!folderId) {
     return (
       <div className="space-y-6 animate-fade-up">
@@ -208,56 +266,106 @@ export default function ImportImagePage() {
       </div>
 
       {!imageUrl ? (
-        <Card
-          className={`border-dashed border-2 cursor-pointer transition-colors ${
-            isDragOver
-              ? "border-primary bg-primary/5"
-              : "hover:border-primary/40"
-          }`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragOver(true);
-          }}
-          onDragLeave={() => setIsDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragOver(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) handleFileBlob(file);
-          }}
-          onClick={handleOpenFile}
-        >
-          <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
-            <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <ImagePlus className="h-7 w-7 text-primary" />
-            </div>
-            <div>
-              <p className="font-semibold">
-                {isDragOver
-                  ? "Drop image here"
-                  : "Drop an image or click to browse"}
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                PNG, JPG, GIF, WebP, BMP supported
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card
+            className={`border-dashed border-2 cursor-pointer transition-colors ${isDragOver
+                ? "border-primary bg-primary/5"
+                : "hover:border-primary/40"
+              }`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) handleFileBlob(file);
+            }}
+            onClick={handleOpenFile}
+          >
+            <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
+              <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+                <ImagePlus className="h-7 w-7 text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold">
+                  {isDragOver
+                    ? "Drop image here"
+                    : "Drop an image or click to browse"}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  PNG, JPG, GIF, WebP, BMP supported
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {recentImports.length > 0 && (
+            <Card>
+              <CardContent className="py-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-sm font-medium">Recent imports</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {recentImports.map((item) => (
+                    <Button
+                      key={item.id}
+                      variant="outline"
+                      className="justify-start truncate"
+                      onClick={() => {
+                        void handleUseRecentImport(item);
+                      }}
+                    >
+                      {item.name}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       ) : (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              Draw rectangles, then tag each as <strong>Q</strong> or{" "}
-              <strong>A</strong>
+              Select a tool, then draw regions corresponding to questions and answers.
             </p>
-            <Button variant="ghost" size="sm" onClick={handleOpenFile}>
-              Change image
+            <Button variant="outline" size="sm" onClick={handleOpenFile}>
+              <RefreshCw className="h-4 w-4 mr-1.5" />
+              Replace image
+            </Button>
+          </div>
+
+          <div className="flex gap-2 items-center justify-center mb-2">
+            <Button
+              variant={activeMode === "question" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveMode("question")}
+              className={activeMode === "question" ? "font-bold" : ""}
+            >
+              <Type className="h-4 w-4 mr-2" /> Draw Question
+            </Button>
+            <Button
+              variant={activeMode === "answer" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveMode("answer")}
+              className={activeMode === 'answer' ? 'bg-success hover:bg-success text-white font-bold border-success' : ''}
+            >
+              <LinkIcon className="h-4 w-4 mr-2" /> Draw Answer
             </Button>
           </div>
 
           <AnnotationCanvas
             imageUrl={imageUrl}
-            onRegionsChange={handleRegionsChange}
+            pageIndex={0}
+            regions={regions}
+            activeMode={activeMode}
+            onRegionAdded={(r) => setRegions(prev => [...prev, r])}
+            onRegionDeleted={(id) => setRegions(prev => prev.filter(r => r.id !== id))}
+            getLabel={getLabel}
           />
 
           <Card>
@@ -273,19 +381,19 @@ export default function ImportImagePage() {
               </label>
               <div className="ml-auto flex items-center gap-3">
                 <Badge variant="secondary">
-                  {questionCount} question{questionCount !== 1 ? "s" : ""}
+                  {sortedQuestions.length} question{sortedQuestions.length !== 1 ? "s" : ""}
                 </Badge>
                 <Button
                   onClick={handleCreateCards}
-                  disabled={creating || questionCount === 0 || !folderId}
+                  disabled={creating || sortedQuestions.length === 0 || !folderId}
                 >
                   {creating ? (
                     "Creating..."
                   ) : (
                     <>
                       <Upload className="h-4 w-4 mr-1.5" />
-                      Create {questionCount} Card
-                      {questionCount !== 1 ? "s" : ""}
+                      Create {sortedQuestions.length} Card
+                      {sortedQuestions.length !== 1 ? "s" : ""}
                     </>
                   )}
                 </Button>

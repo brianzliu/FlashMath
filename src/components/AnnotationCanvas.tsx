@@ -8,21 +8,34 @@ export interface Region {
   width: number;
   height: number;
   role: "question" | "answer" | null;
+  pageIndex: number;
+  labelNumber: number;
 }
 
 interface AnnotationCanvasProps {
   imageUrl: string;
-  onRegionsChange: (regions: Region[]) => void;
+  pageIndex: number;
+  regions: Region[];
+  activeMode: "question" | "answer" | null;
+  onRegionAdded: (region: Region) => void;
+  onRegionDeleted: (id: string) => void;
+  onRegionChange?: (region: Region) => void;
+  regionsByType?: Region[];
   className?: string;
 }
 
 export function AnnotationCanvas({
   imageUrl,
-  onRegionsChange,
+  pageIndex,
+  regions,
+  activeMode,
+  onRegionAdded,
+  onRegionDeleted,
+  onRegionChange,
+  regionsByType = [],
   className,
 }: AnnotationCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [regions, setRegions] = useState<Region[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
@@ -34,36 +47,29 @@ export function AnnotationCanvas({
     naturalHeight: 0,
   });
 
-  const updateRegions = useCallback(
-    (newRegions: Region[]) => {
-      setRegions(newRegions);
-      onRegionsChange(newRegions);
-    },
-    [onRegionsChange]
-  );
-
-  const getRelativePos = useCallback(
-    (e: React.MouseEvent) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return { x: 0, y: 0 };
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      };
-    },
-    []
-  );
+  const getRelativePos = useCallback((e: React.MouseEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  }, []);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // If clicking on the canvas background (not a region), deselect and start drawing
+      if ((e.target as HTMLElement).closest(".region-box")) {
+        return;
+      }
+      if (!activeMode) return;
+
       const pos = getRelativePos(e);
       setStartPos(pos);
       setCurrentPos(pos);
       setDrawing(true);
       setSelectedId(null);
     },
-    [getRelativePos]
+    [getRelativePos, activeMode]
   );
 
   const handleMouseMove = useCallback(
@@ -75,7 +81,7 @@ export function AnnotationCanvas({
   );
 
   const handleMouseUp = useCallback(() => {
-    if (!drawing) return;
+    if (!drawing || !activeMode) return;
     setDrawing(false);
 
     const x = Math.min(startPos.x, currentPos.x);
@@ -94,53 +100,31 @@ export function AnnotationCanvas({
       y: Math.round(y * scaleY),
       width: Math.round(width * scaleX),
       height: Math.round(height * scaleY),
-      role: null,
+      role: activeMode,
+      pageIndex,
+      labelNumber: 1, // Will be overridden by parent
     };
 
-    updateRegions([...regions, region]);
+    onRegionAdded(region);
     setSelectedId(region.id);
-  }, [drawing, startPos, currentPos, regions, imgDimensions, updateRegions]);
+  }, [drawing, startPos, currentPos, imgDimensions, activeMode, pageIndex, onRegionAdded]);
 
-  const setRegionRole = useCallback(
-    (id: string, role: "question" | "answer") => {
-      updateRegions(
-        regions.map((r) => (r.id === id ? { ...r, role } : r))
-      );
-    },
-    [regions, updateRegions]
-  );
-
-  const removeRegion = useCallback(
-    (id: string) => {
-      updateRegions(regions.filter((r) => r.id !== id));
-      if (selectedId === id) setSelectedId(null);
-    },
-    [regions, updateRegions, selectedId]
-  );
-
-  // Keyboard shortcuts: Q, A, Delete/Backspace
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!selectedId) return;
-      // Don't capture when typing in inputs
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-      if (e.key === "q" || e.key === "Q") {
+      if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        setRegionRole(selectedId, "question");
-      } else if (e.key === "a" || e.key === "A") {
-        e.preventDefault();
-        setRegionRole(selectedId, "answer");
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        removeRegion(selectedId);
+        onRegionDeleted(selectedId);
+        setSelectedId(null);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedId, setRegionRole, removeRegion]);
+  }, [selectedId, onRegionDeleted]);
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -166,21 +150,10 @@ export function AnnotationCanvas({
   };
 
   return (
-    <div className={cn("relative inline-block", className)}>
-      {selectedId && (
-        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Region selected &mdash;</span>
-          <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">Q</kbd>
-          <span>question</span>
-          <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">A</kbd>
-          <span>answer</span>
-          <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">Del</kbd>
-          <span>remove</span>
-        </div>
-      )}
+    <div className={cn("relative inline-block w-full max-w-[800px] mx-auto bg-white mb-0", className)}>
       <div
         ref={containerRef}
-        className="relative cursor-crosshair select-none"
+        className={cn("relative select-none", activeMode ? "cursor-crosshair" : "cursor-default")}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -188,16 +161,18 @@ export function AnnotationCanvas({
       >
         <img
           src={imageUrl}
-          alt="Source for annotation"
-          className="max-w-full"
+          alt={`Page ${pageIndex + 1}`}
+          className="w-full h-auto block"
           onLoad={handleImageLoad}
           draggable={false}
         />
 
-        {/* Drawing preview */}
         {drawing && (
           <div
-            className="absolute border-2 border-dashed border-primary bg-primary/10 pointer-events-none"
+            className={cn(
+              "absolute border-2 border-dashed pointer-events-none",
+              activeMode === "question" ? "border-primary bg-primary/20" : "border-success bg-success/20"
+            )}
             style={{
               left: Math.min(startPos.x, currentPos.x),
               top: Math.min(startPos.y, currentPos.y),
@@ -207,20 +182,25 @@ export function AnnotationCanvas({
           />
         )}
 
-        {/* Existing regions */}
         {regions.map((region) => {
           const display = scaleRegionToDisplay(region);
           const isSelected = region.id === selectedId;
+
+          // Compute max dropdown options and disabled state
+          const typeRegions = regionsByType.filter((r) => r.role === region.role);
+          const maxNum = Math.max(20, typeRegions.length + 5);
+          const usedNumbers = new Set(
+            typeRegions.filter((r) => r.id !== region.id).map((r) => r.labelNumber)
+          );
+
           return (
             <div
               key={region.id}
               className={cn(
-                "absolute border-2 transition-shadow",
+                "absolute border-2 transition-shadow region-box group",
                 region.role === "question"
                   ? "border-primary bg-primary/10"
-                  : region.role === "answer"
-                  ? "border-success bg-success/10"
-                  : "border-warning bg-warning/10",
+                  : "border-success bg-success/10",
                 isSelected && "ring-2 ring-primary ring-offset-1 shadow-lg"
               )}
               style={{
@@ -236,39 +216,41 @@ export function AnnotationCanvas({
                 setSelectedId(region.id);
               }}
             >
-              {/* Toolbar */}
-              <div
-                className="absolute -top-8 left-0 flex gap-1 pointer-events-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  onClick={() => setRegionRole(region.id, "question")}
-                  className={cn(
-                    "px-2 py-0.5 text-xs rounded",
-                    region.role === "question"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-card border border-border text-foreground"
-                  )}
+              <div className={cn(
+                "absolute -top-7 left-0 text-[11px] font-bold px-1.5 py-0.5 rounded shadow-sm border opacity-100 group-hover:scale-110 origin-bottom-left transition-transform z-10 flex gap-1 items-center text-white min-w-max",
+                region.role === "question" ? "bg-primary border-primary" : "bg-success border-success"
+              )}>
+                <span className="opacity-90">{region.role === "question" ? "Q" : "A"}</span>
+                <select
+                  value={region.labelNumber}
+                  onChange={(e) => {
+                    if (onRegionChange) {
+                      onRegionChange({ ...region, labelNumber: parseInt(e.target.value, 10) });
+                    }
+                  }}
+                  className="bg-transparent border-none text-white outline-none cursor-pointer appearance-none p-0 pr-1 text-center font-bold"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  Q
-                </button>
-                <button
-                  onClick={() => setRegionRole(region.id, "answer")}
-                  className={cn(
-                    "px-2 py-0.5 text-xs rounded",
-                    region.role === "answer"
-                      ? "bg-success text-white"
-                      : "bg-card border border-border text-foreground"
-                  )}
-                >
-                  A
-                </button>
-                <button
-                  onClick={() => removeRegion(region.id)}
-                  className="px-2 py-0.5 text-xs rounded bg-destructive text-destructive-foreground"
-                >
-                  x
-                </button>
+                  {Array.from({ length: maxNum }, (_, i) => i + 1).map((num) => (
+                    <option
+                      key={num}
+                      value={num}
+                      disabled={usedNumbers.has(num)}
+                      className="text-foreground bg-popover font-medium"
+                    >
+                      {num}
+                    </option>
+                  ))}
+                </select>
+                {isSelected && (
+                  <span className="bg-black/20 hover:bg-black/40 text-white rounded-full w-4 h-4 inline-flex items-center justify-center cursor-pointer ml-1 text-xs shrink-0" onClick={(e) => {
+                    e.stopPropagation();
+                    onRegionDeleted(region.id);
+                    setSelectedId(null);
+                  }}>
+                    &times;
+                  </span>
+                )}
               </div>
             </div>
           );

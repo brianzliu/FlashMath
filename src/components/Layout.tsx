@@ -58,14 +58,14 @@ export function Layout() {
           <button
             onClick={() => setAiPanelOpen(!aiPanelOpen)}
             className={cn(
-              "pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg transition-all",
+              "pointer-events-auto flex h-8 items-center justify-center rounded-lg transition-all px-3 text-sm font-medium",
               aiPanelOpen
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-primary text-primary-foreground hover:opacity-90 shadow-sm"
             )}
             title={aiPanelOpen ? "Close AI Chat" : "Open AI Chat"}
           >
-            <Bot className="h-4 w-4" />
+            FlashMath Chat
           </button>
         </div>
         <div className="mx-auto max-w-5xl px-6 pb-8 lg:px-10">

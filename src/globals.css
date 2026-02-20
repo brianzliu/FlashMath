@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
-
+@source "../index.html";
+@source "../src";
 :root {
   --background: 40 33% 98%;
   --foreground: 20 20% 14%;

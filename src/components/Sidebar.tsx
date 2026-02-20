@@ -117,9 +117,6 @@ export function Sidebar() {
       {/* Logo */}
       <div className="px-5 pt-5 pb-4">
         <Link to="/" className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-extrabold text-sm">
-            FM
-          </div>
           <span className="text-lg font-bold tracking-tight">FlashMath</span>
         </Link>
       </div>

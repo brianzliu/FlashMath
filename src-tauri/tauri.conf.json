@@ -2,10 +2,10 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FlashMath",
   "version": "0.1.0",
-  "identifier": "com.flashmath.app",
+  "identifier": "com.flashmath.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -38,7 +38,9 @@
   },
   "plugins": {
     "sql": {
-      "preload": ["sqlite:flashmath.db"]
+      "preload": [
+        "sqlite:flashmath.db"
+      ]
     }
   }
 }

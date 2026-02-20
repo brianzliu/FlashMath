@@ -297,21 +297,12 @@ export function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         "border-l border-border/60 bg-card"
       )}
     >
-      {/* ── Header ─────────────────────────────────────── */}
-      <header className="flex items-center gap-3 border-b border-border/50 px-5 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary/90 to-primary shadow-sm">
-          <Sparkles className="h-4 w-4 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-extrabold tracking-tight">FlashMath AI</h2>
-          <p className="text-[11px] text-muted-foreground -mt-0.5">
-            Ask about your cards & progress
-          </p>
-        </div>
+      {/* ── Header Actions ─────────────────────────────────────── */}
+      <div className="absolute top-0 right-0 z-10 flex items-center justify-end gap-1 p-3 pointer-events-none w-full">
         {messages.length > 0 && (
           <button
             onClick={clearChat}
-            className="rounded-lg p-1.5 text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
+            className="pointer-events-auto rounded-lg p-1.5 text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
             title="Clear chat"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -319,11 +310,11 @@ export function AIChatPanel({ open, onClose }: AIChatPanelProps) {
         )}
         <button
           onClick={onClose}
-          className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          className="pointer-events-auto rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
         >
           <X className="h-4 w-4" />
         </button>
-      </header>
+      </div>
 
       {/* ── Messages ───────────────────────────────────── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 scroll-smooth">
@@ -418,23 +409,25 @@ function EmptyState({ onSuggestion, editorContext }: {
 }) {
   const suggestions = editorContext ? EDITOR_SUGGESTIONS : SUGGESTIONS;
 
+  const memoizedGreeting = useMemo(() => {
+    const hour = new Date().getHours();
+    let timeGreeting = "Good evening";
+    if (hour < 12) timeGreeting = "Good morning";
+    else if (hour < 18) timeGreeting = "Good afternoon";
+
+    const options = [
+      `${timeGreeting}! Let's kick it off with one of these options.`,
+      `${timeGreeting}! Ready to dive in? Pick a starting point.`,
+      `${timeGreeting}! How can I help you today? Here are some ideas:`,
+      `${timeGreeting}! Let's get started. Try one of these:`
+    ];
+    return options[Math.floor(Math.random() * options.length)];
+  }, []);
+
   return (
     <div className="flex flex-col items-center justify-center h-full text-center px-6 pb-8 animate-fade-up">
-      <div className="relative mb-5">
-        <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
-          <Bot className="h-8 w-8 text-primary/60" />
-        </div>
-        <div className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center">
-          <Sparkles className="h-3 w-3 text-primary" />
-        </div>
-      </div>
-      <h3 className="text-sm font-bold mb-1">
-        {editorContext ? "Card creation assistant" : "Your study companion"}
-      </h3>
-      <p className="text-[12px] text-muted-foreground leading-relaxed mb-6 max-w-[260px]">
-        {editorContext
-          ? "I can help create flashcards, generate content, or bulk-create cards for a topic."
-          : "Ask me anything about your flashcards, study progress, or for help understanding a topic."}
+      <p className="text-[13px] text-foreground/80 leading-relaxed mb-6 max-w-[280px] font-medium">
+        {memoizedGreeting}
       </p>
       <div className="flex flex-wrap justify-center gap-2">
         {suggestions.map((s) => (
