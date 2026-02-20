@@ -38,6 +38,7 @@ export function AnnotationCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
+  const activePointerIdRef = useRef<number | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [currentPos, setCurrentPos] = useState({ x: 0, y: 0 });
   const [imgDimensions, setImgDimensions] = useState({
@@ -56,13 +57,47 @@ export function AnnotationCanvas({
     };
   }, []);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  const finalizeDrawing = useCallback(
+    (endPos: { x: number; y: number }) => {
+      if (!drawing || !activeMode) return;
+      setDrawing(false);
+
+      const x = Math.min(startPos.x, endPos.x);
+      const y = Math.min(startPos.y, endPos.y);
+      const width = Math.abs(endPos.x - startPos.x);
+      const height = Math.abs(endPos.y - startPos.y);
+
+      if (width < 10 || height < 10) return;
+
+      const scaleX = imgDimensions.naturalWidth / imgDimensions.width;
+      const scaleY = imgDimensions.naturalHeight / imgDimensions.height;
+
+      const region: Region = {
+        id: generateId(),
+        x: Math.round(x * scaleX),
+        y: Math.round(y * scaleY),
+        width: Math.round(width * scaleX),
+        height: Math.round(height * scaleY),
+        role: activeMode,
+        pageIndex,
+        labelNumber: 1, // Will be overridden by parent
+      };
+
+      onRegionAdded(region);
+      setSelectedId(region.id);
+    },
+    [drawing, activeMode, startPos, imgDimensions, pageIndex, onRegionAdded]
+  );
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
       if ((e.target as HTMLElement).closest(".region-box")) {
         return;
       }
       if (!activeMode) return;
 
+      e.currentTarget.setPointerCapture(e.pointerId);
+      activePointerIdRef.current = e.pointerId;
       const pos = getRelativePos(e);
       setStartPos(pos);
       setCurrentPos(pos);
@@ -72,42 +107,39 @@ export function AnnotationCanvas({
     [getRelativePos, activeMode]
   );
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!drawing) return;
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!drawing || activePointerIdRef.current !== e.pointerId) return;
       setCurrentPos(getRelativePos(e));
     },
     [drawing, getRelativePos]
   );
 
-  const handleMouseUp = useCallback(() => {
-    if (!drawing || !activeMode) return;
-    setDrawing(false);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (activePointerIdRef.current !== e.pointerId) return;
+      const pos = getRelativePos(e);
+      setCurrentPos(pos);
+      finalizeDrawing(pos);
+      activePointerIdRef.current = null;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    },
+    [finalizeDrawing, getRelativePos]
+  );
 
-    const x = Math.min(startPos.x, currentPos.x);
-    const y = Math.min(startPos.y, currentPos.y);
-    const width = Math.abs(currentPos.x - startPos.x);
-    const height = Math.abs(currentPos.y - startPos.y);
-
-    if (width < 10 || height < 10) return;
-
-    const scaleX = imgDimensions.naturalWidth / imgDimensions.width;
-    const scaleY = imgDimensions.naturalHeight / imgDimensions.height;
-
-    const region: Region = {
-      id: generateId(),
-      x: Math.round(x * scaleX),
-      y: Math.round(y * scaleY),
-      width: Math.round(width * scaleX),
-      height: Math.round(height * scaleY),
-      role: activeMode,
-      pageIndex,
-      labelNumber: 1, // Will be overridden by parent
-    };
-
-    onRegionAdded(region);
-    setSelectedId(region.id);
-  }, [drawing, startPos, currentPos, imgDimensions, activeMode, pageIndex, onRegionAdded]);
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent) => {
+      if (activePointerIdRef.current !== e.pointerId) return;
+      setDrawing(false);
+      activePointerIdRef.current = null;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -154,10 +186,10 @@ export function AnnotationCanvas({
       <div
         ref={containerRef}
         className={cn("relative select-none", activeMode ? "cursor-crosshair" : "cursor-default")}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={() => setDrawing(false)}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
       >
         <img
           src={imageUrl}
@@ -211,7 +243,7 @@ export function AnnotationCanvas({
                 cursor: "pointer",
                 pointerEvents: "auto",
               }}
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
                 setSelectedId(region.id);
               }}

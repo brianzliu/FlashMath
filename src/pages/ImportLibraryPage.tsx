@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,11 +14,13 @@ import type { Flashcard, Folder } from "@/lib/types";
 import { BookOpen, Pencil, Trash2, Image as ImageIcon, FileText } from "lucide-react";
 
 export default function ImportLibraryPage() {
+  const navigate = useNavigate();
   const [imports, setImports] = useState<ImportLibraryItem[]>([]);
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
+  const [targetFolderId, setTargetFolderId] = useState<string>("");
 
   useEffect(() => {
     let active = true;
@@ -72,6 +74,27 @@ export default function ImportLibraryPage() {
     setImports(await listRecentImports(undefined, 500));
     if (activeImportId === id) setActiveImportId(null);
   };
+
+  const handleOpenImporter = () => {
+    if (!activeImport || !targetFolderId) return;
+    if (activeImport.kind === "pdf") {
+      navigate(`/import/pdf?folderId=${targetFolderId}&importId=${activeImport.id}`);
+    } else {
+      navigate(`/import/image?folderId=${targetFolderId}&importId=${activeImport.id}`);
+    }
+  };
+
+  useEffect(() => {
+    if (!activeImport) return;
+    const firstLinkedFolderId = linkedCards.find((c) => c.folder_id)?.folder_id || "";
+    if (firstLinkedFolderId) {
+      setTargetFolderId(firstLinkedFolderId);
+      return;
+    }
+    if (!targetFolderId && folders.length > 0) {
+      setTargetFolderId(folders[0].id);
+    }
+  }, [activeImport, linkedCards, folders, targetFolderId]);
 
   return (
     <div className="space-y-6 animate-fade-up">
@@ -145,15 +168,34 @@ export default function ImportLibraryPage() {
                 <p className="text-sm text-muted-foreground text-center py-8">
                   Select an import to view and edit related flashcards.
                 </p>
-              ) : linkedCards.length === 0 ? (
-                <div className="text-center py-8 space-y-2">
-                  <p className="text-sm font-medium">No linked flashcards yet</p>
-                  <p className="text-sm text-muted-foreground">
-                    Create cards from this import, then they will appear here.
-                  </p>
-                </div>
               ) : (
                 <div className="space-y-3">
+                  <div className="rounded-xl border border-border p-3 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Add More Flashcards
+                    </p>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <select
+                        value={targetFolderId}
+                        onChange={(e) => setTargetFolderId(e.target.value)}
+                        className="h-9 min-w-[170px] rounded-lg border border-input bg-background px-3 text-sm"
+                      >
+                        {folders.map((folder) => (
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        disabled={!targetFolderId}
+                        onClick={handleOpenImporter}
+                      >
+                        {activeImport.kind === "pdf" ? "Open PDF Importer" : "Open Image Importer"}
+                      </Button>
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-bold flex items-center gap-2">
                       <BookOpen className="h-4 w-4 text-primary" />
@@ -163,27 +205,36 @@ export default function ImportLibraryPage() {
                       {linkedCards.length} card{linkedCards.length === 1 ? "" : "s"}
                     </Badge>
                   </div>
-                  {linkedCards.map((card) => (
-                    <div
-                      key={card.id}
-                      className="rounded-xl border border-border px-3 py-2.5 flex items-center gap-3"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {card.title || (card.question_type === "image" ? "Image card" : card.question_content)}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {card.folder_id ? folderNameById.get(card.folder_id) || "Deck" : "No deck"}
-                        </p>
-                      </div>
-                      <Button size="sm" variant="outline" asChild>
-                        <Link to={`/card?id=${card.id}`}>
-                          <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                          Edit
-                        </Link>
-                      </Button>
+                  {linkedCards.length === 0 ? (
+                    <div className="text-center py-6 space-y-2">
+                      <p className="text-sm font-medium">No linked flashcards yet</p>
+                      <p className="text-sm text-muted-foreground">
+                        Open this import above to create new flashcards.
+                      </p>
                     </div>
-                  ))}
+                  ) : (
+                    linkedCards.map((card) => (
+                      <div
+                        key={card.id}
+                        className="rounded-xl border border-border px-3 py-2.5 flex items-center gap-3"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {card.title || (card.question_type === "image" ? "Image card" : card.question_content)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {card.folder_id ? folderNameById.get(card.folder_id) || "Deck" : "No deck"}
+                          </p>
+                        </div>
+                        <Button size="sm" variant="outline" asChild>
+                          <Link to={`/card?id=${card.id}`}>
+                            <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                            Edit
+                          </Link>
+                        </Button>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </CardContent>

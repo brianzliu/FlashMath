@@ -15,9 +15,11 @@ import {
   RefreshCw,
 } from "lucide-react";
 import {
+  getImportById,
   listRecentImports,
   linkFlashcardsToImport,
   saveImageImport,
+  saveRegionsToImport,
   touchImport,
   type ImageImportItem,
 } from "@/lib/import-library";
@@ -26,6 +28,7 @@ export default function ImportImagePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const folderId = searchParams.get("folderId") || "";
+  const importId = searchParams.get("importId");
   const { folders } = useAppStore();
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -33,7 +36,20 @@ export default function ImportImagePage() {
   const [regions, setRegions] = useState<Region[]>([]);
 
   const [activeMode, setActiveMode] = useState<"question" | "answer" | null>("question");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key.toLowerCase() === "q") setActiveMode("question");
+      else if (e.key.toLowerCase() === "a") setActiveMode("answer");
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [useOcr, setUseOcr] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [recentImports, setRecentImports] = useState<ImageImportItem[]>([]);
@@ -53,6 +69,32 @@ export default function ImportImagePage() {
   useEffect(() => {
     refreshRecentImports();
   }, [refreshRecentImports]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!importId) return;
+
+    const loadImport = async () => {
+      const item = await getImportById(importId);
+      if (!item || item.kind !== "image" || cancelled) return;
+      setImageUrl(item.dataUrl);
+      setRegions(item.regions ?? []);
+      setActiveImportId(item.id);
+      try {
+        const savedPath = await commands.saveImageFromDataUrl(item.dataUrl);
+        if (!cancelled) setImagePath(savedPath);
+      } catch {
+        if (!cancelled) setImagePath(item.sourcePath ?? null);
+      }
+      await touchImport(item.id);
+      await refreshRecentImports();
+    };
+
+    void loadImport();
+    return () => {
+      cancelled = true;
+    };
+  }, [importId, refreshRecentImports]);
 
   const handleFileBlob = useCallback(async (file: File) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -110,7 +152,7 @@ export default function ImportImagePage() {
   const handleUseRecentImport = useCallback(
     async (item: ImageImportItem) => {
       setImageUrl(item.dataUrl);
-      setRegions([]);
+      setRegions(item.regions ?? []);
 
       if (item.sourcePath) {
         setImagePath(item.sourcePath);
@@ -131,31 +173,73 @@ export default function ImportImagePage() {
     if (file) handleFileBlob(file);
   };
 
-  const sortedQuestions = useMemo(() => regions.filter(r => r.role === 'question').sort((a, b) => a.y - b.y), [regions]);
-  const sortedAnswers = useMemo(() => regions.filter(r => r.role === 'answer').sort((a, b) => a.y - b.y), [regions]);
+  const sortedQuestions = useMemo(
+    () => regions.filter(r => r.role === "question").sort((a, b) => a.labelNumber - b.labelNumber),
+    [regions]
+  );
+  const sortedAnswers = useMemo(
+    () => regions.filter(r => r.role === "answer").sort((a, b) => a.labelNumber - b.labelNumber),
+    [regions]
+  );
 
-  const getLabel = useCallback((region: Region) => {
-    if (region.role === 'question') {
-      const idx = sortedQuestions.findIndex(r => r.id === region.id);
-      return `Q${idx + 1}`;
-    } else {
-      const idx = sortedAnswers.findIndex(r => r.id === region.id);
-      return `A${idx + 1}`;
-    }
-  }, [sortedQuestions, sortedAnswers]);
+  const handleRegionAdded = useCallback((newRegion: Region) => {
+    setRegions(prev => {
+      const sameRoleRegions = prev.filter(r => r.role === newRegion.role);
+      const usedNumbers = new Set(sameRoleRegions.map(r => r.labelNumber));
+
+      if (newRegion.role === "answer") {
+        const questionNumbers = new Set(prev.filter(r => r.role === "question").map(r => r.labelNumber));
+        const answerNumbers = new Set(sameRoleRegions.map(r => r.labelNumber));
+        const unmatched = [...questionNumbers].filter(n => !answerNumbers.has(n)).sort((a, b) => a - b);
+        if (unmatched.length === 0) return prev;
+        return [...prev, { ...newRegion, labelNumber: unmatched[0] }];
+      }
+
+      let nextNum = 1;
+      while (usedNumbers.has(nextNum)) nextNum++;
+      return [...prev, { ...newRegion, labelNumber: nextNum }];
+    });
+  }, []);
+
+  const handleRegionChange = useCallback((updatedRegion: Region) => {
+    setRegions(prev => prev.map(r => r.id === updatedRegion.id ? updatedRegion : r));
+  }, []);
+
+  // Auto-save regions to import library (debounced)
+  useEffect(() => {
+    if (!activeImportId || regions.length === 0) return;
+    const timer = setTimeout(() => {
+      saveRegionsToImport(activeImportId, regions);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [regions, activeImportId]);
 
   const handleCreateCards = async () => {
-    if (!folderId || !imagePath || sortedQuestions.length === 0) return;
+    if (!folderId || sortedQuestions.length === 0) return;
     setCreating(true);
+    setCreateError(null);
 
     try {
+      let resolvedPath = imagePath;
+      if (!resolvedPath && imageUrl) {
+        resolvedPath = await commands.saveImageFromDataUrl(imageUrl);
+        setImagePath(resolvedPath);
+      }
+      if (!resolvedPath) {
+        setCreateError("Image file is not available. Try re-selecting the image.");
+        setCreating(false);
+        return;
+      }
+
       const createdCardIds: string[] = [];
+      const titleJobs: { cardId: string; imagePath: string }[] = [];
+
       for (let i = 0; i < sortedQuestions.length; i++) {
         const q = sortedQuestions[i];
-        const a = sortedAnswers[i]; // May be undefined
+        const a = sortedAnswers.find(ans => ans.labelNumber === q.labelNumber);
 
         const qPath = await commands.cropRegion(
-          imagePath,
+          resolvedPath,
           q.x,
           q.y,
           q.width,
@@ -164,7 +248,6 @@ export default function ImportImagePage() {
 
         let qType: "image" | "latex" = "image";
         let qContent = qPath;
-        let qTitle: string | null = null;
 
         if (useOcr) {
           try {
@@ -172,16 +255,7 @@ export default function ImportImagePage() {
             qType = "latex";
             qContent = latex;
           } catch {
-            /* fall back */
-          }
-        }
-
-        // Generate title for image questions using LLM
-        if (qType === "image") {
-          try {
-            qTitle = await commands.generateImageTitle(qPath);
-          } catch {
-            /* fall back */
+            /* fall back to image */
           }
         }
 
@@ -190,7 +264,7 @@ export default function ImportImagePage() {
 
         if (a) {
           const aPath = await commands.cropRegion(
-            imagePath,
+            resolvedPath,
             a.x,
             a.y,
             a.width,
@@ -212,24 +286,41 @@ export default function ImportImagePage() {
           }
         }
 
+        const placeholderTitle = qType === "image" ? "Generating title…" : null;
+
         const created = await commands.createFlashcard({
           folder_id: folderId,
-          title: qTitle,
+          title: placeholderTitle,
           question_type: qType,
           question_content: qContent,
           answer_type: aType,
           answer_content: aContent,
         });
         createdCardIds.push(created.id);
+
+        if (qType === "image") {
+          titleJobs.push({ cardId: created.id, imagePath: qPath });
+        }
       }
 
       if (activeImportId && createdCardIds.length > 0) {
         await linkFlashcardsToImport(activeImportId, createdCardIds);
       }
 
+      // Fire-and-forget: generate titles in the background
+      for (const job of titleJobs) {
+        commands.generateImageTitle(job.imagePath).then(
+          (title) => commands.updateFlashcard(job.cardId, { title }),
+          () => commands.updateFlashcard(job.cardId, { title: null }),
+        );
+      }
+
       navigate(`/folder?id=${folderId}`);
     } catch (err) {
       console.error("Failed to create flashcards:", err);
+      setCreateError(
+        `Failed to create cards: ${err instanceof Error ? err.message : String(err)}`
+      );
     } finally {
       setCreating(false);
     }
@@ -373,11 +464,20 @@ export default function ImportImagePage() {
             imageUrl={imageUrl}
             pageIndex={0}
             regions={regions}
+            regionsByType={regions}
             activeMode={activeMode}
-            onRegionAdded={(r) => setRegions(prev => [...prev, r])}
+            onRegionAdded={handleRegionAdded}
+            onRegionChange={handleRegionChange}
             onRegionDeleted={(id) => setRegions(prev => prev.filter(r => r.id !== id))}
-            getLabel={getLabel}
           />
+
+          {createError && (
+            <Card className="border-destructive/30 bg-destructive/5">
+              <CardContent className="py-3 text-sm text-destructive">
+                {createError}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardContent className="flex flex-wrap items-center gap-4 py-4">
@@ -392,7 +492,7 @@ export default function ImportImagePage() {
               </label>
               <div className="ml-auto flex items-center gap-3">
                 <Badge variant="secondary">
-                  {sortedQuestions.length} question{sortedQuestions.length !== 1 ? "s" : ""}
+                  {sortedQuestions.length} question{sortedQuestions.length !== 1 ? "s" : ""}, {sortedAnswers.length} answer{sortedAnswers.length !== 1 ? "s" : ""}
                 </Badge>
                 <Button
                   onClick={handleCreateCards}

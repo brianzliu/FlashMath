@@ -5,9 +5,10 @@ interface ImageDisplayProps {
   src: string;
   alt?: string;
   className?: string;
+  style?: React.CSSProperties;
 }
 
-export function ImageDisplay({ src, alt = "Image", className }: ImageDisplayProps) {
+export function ImageDisplay({ src, alt = "Image", className, style }: ImageDisplayProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
 
@@ -56,7 +57,7 @@ export function ImageDisplay({ src, alt = "Image", className }: ImageDisplayProp
     );
   }
 
-  return <img src={dataUrl} alt={alt} className={className} />;
+  return <img src={dataUrl} alt={alt} className={className} style={style} />;
 }
 
 export function isImagePath(content: string): boolean {

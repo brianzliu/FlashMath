@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Flashcard } from "@/lib/types";
 import { LaTeXRenderer } from "./LaTeXRenderer";
-import { ImageDisplay } from "./ImageDisplay";
+import { ZoomableImage } from "./ZoomableImage";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
@@ -19,15 +20,7 @@ function FlashcardContent({ type, content }: { type: string; content: string }) 
   if (type === "latex") {
     return <LaTeXRenderer content={content} />;
   }
-  return (
-    <div className="flex justify-center">
-      <ImageDisplay
-        src={content}
-        alt="Flashcard content"
-        className="max-w-full max-h-64 rounded-lg"
-      />
-    </div>
-  );
+  return <ZoomableImage src={content} alt="Flashcard content" />;
 }
 
 export function CardPreviewModal({
@@ -37,6 +30,7 @@ export function CardPreviewModal({
   onNavigate,
 }: CardPreviewModalProps) {
   const [showAnswer, setShowAnswer] = useState(false);
+  const modalBodyRef = useRef<HTMLDivElement>(null);
   const card = cards[currentIndex];
   if (!card) return null;
 
@@ -56,6 +50,17 @@ export function CardPreviewModal({
     }
   };
 
+  const toggleAnswer = (next: boolean) => {
+    const scrollTop = modalBodyRef.current?.scrollTop ?? 0;
+    setShowAnswer(next);
+    // Preserve scroll position to avoid jump when answer section mounts/unmounts.
+    requestAnimationFrame(() => {
+      if (modalBodyRef.current) {
+        modalBodyRef.current.scrollTop = scrollTop;
+      }
+    });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowLeft") handlePrev();
     else if (e.key === "ArrowRight") handleNext();
@@ -65,15 +70,16 @@ export function CardPreviewModal({
     } else if (e.key === "Escape") onClose();
   };
 
-  return (
+  const modal = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm animate-fade-in overflow-y-auto p-4 md:p-6"
       onClick={onClose}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
       <div
-        className="relative bg-background border border-border rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto animate-fade-up"
+        ref={modalBodyRef}
+        className="relative bg-background border border-border rounded-2xl shadow-2xl w-full max-w-4xl my-6 max-h-[90vh] overflow-y-auto animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -153,7 +159,8 @@ export function CardPreviewModal({
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => setShowAnswer(true)}
+              type="button"
+              onClick={() => toggleAnswer(true)}
             >
               <Eye className="h-4 w-4 mr-2" />
               Show Answer
@@ -164,7 +171,8 @@ export function CardPreviewModal({
               variant="ghost"
               size="sm"
               className="mt-2 text-muted-foreground"
-              onClick={() => setShowAnswer(false)}
+              type="button"
+              onClick={() => toggleAnswer(false)}
             >
               <EyeOff className="h-3.5 w-3.5 mr-1.5" />
               Hide Answer
@@ -199,4 +207,6 @@ export function CardPreviewModal({
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

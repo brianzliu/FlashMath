@@ -58,6 +58,11 @@ function saveLocalDb(db: LocalDb) {
   window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(db));
 }
 
+function emitDataChanged() {
+  if (!isBrowser()) return;
+  window.dispatchEvent(new CustomEvent("flashmath:data-changed"));
+}
+
 async function getDb(): Promise<Database> {
   if (dbInstance) return dbInstance;
   const SqlDatabase = (await import("@tauri-apps/plugin-sql")).default;
@@ -126,6 +131,7 @@ export async function createFolder(name: string): Promise<Folder> {
     };
     localDb.folders.push(folder);
     saveLocalDb(localDb);
+    emitDataChanged();
     return folder;
   }
   const db = await getDb();
@@ -137,6 +143,7 @@ export async function createFolder(name: string): Promise<Folder> {
     "SELECT * FROM folders WHERE id = $1",
     [id]
   );
+  emitDataChanged();
   return rows[0];
 }
 
@@ -149,6 +156,7 @@ export async function renameFolder(id: string, name: string): Promise<void> {
         : folder
     );
     saveLocalDb(localDb);
+    emitDataChanged();
     return;
   }
   const db = await getDb();
@@ -156,6 +164,7 @@ export async function renameFolder(id: string, name: string): Promise<void> {
     "UPDATE folders SET name = $1, updated_at = $2 WHERE id = $3",
     [name, nowISO(), id]
   );
+  emitDataChanged();
 }
 
 export async function deleteFolder(id: string): Promise<void> {
@@ -166,10 +175,12 @@ export async function deleteFolder(id: string): Promise<void> {
       card.folder_id === id ? { ...card, folder_id: null } : card
     );
     saveLocalDb(localDb);
+    emitDataChanged();
     return;
   }
   const db = await getDb();
   await db.execute("DELETE FROM folders WHERE id = $1", [id]);
+  emitDataChanged();
 }
 
 export async function setFolderEmoji(
@@ -184,6 +195,7 @@ export async function setFolderEmoji(
         : folder
     );
     saveLocalDb(localDb);
+    emitDataChanged();
     return;
   }
   const db = await getDb();
@@ -191,6 +203,7 @@ export async function setFolderEmoji(
     "UPDATE folders SET emoji = $1, updated_at = $2 WHERE id = $3",
     [emoji, nowISO(), id]
   );
+  emitDataChanged();
 }
 
 export async function setFolderDeadline(
@@ -205,6 +218,7 @@ export async function setFolderDeadline(
         : folder
     );
     saveLocalDb(localDb);
+    emitDataChanged();
     return;
   }
   const db = await getDb();
@@ -212,6 +226,7 @@ export async function setFolderDeadline(
     "UPDATE folders SET deadline = $1, updated_at = $2 WHERE id = $3",
     [deadline, nowISO(), id]
   );
+  emitDataChanged();
 }
 
 // --- Flashcards ---
@@ -285,6 +300,7 @@ export async function createFlashcard(
     };
     localDb.flashcards.push(card);
     saveLocalDb(localDb);
+    emitDataChanged();
     return card;
   }
   const db = await getDb();
@@ -314,6 +330,7 @@ export async function createFlashcard(
     "SELECT * FROM flashcards WHERE id = $1",
     [id]
   );
+  emitDataChanged();
   return rows[0];
 }
 
@@ -341,6 +358,7 @@ export async function updateFlashcard(
         : card
     );
     saveLocalDb(localDb);
+    emitDataChanged();
     return;
   }
   const db = await getDb();
@@ -391,6 +409,7 @@ export async function updateFlashcard(
     `UPDATE flashcards SET ${fields.join(", ")} WHERE id = $${paramIdx}`,
     values
   );
+  emitDataChanged();
 }
 
 export async function deleteFlashcard(id: string): Promise<void> {
@@ -401,10 +420,12 @@ export async function deleteFlashcard(id: string): Promise<void> {
       (review) => review.flashcard_id !== id
     );
     saveLocalDb(localDb);
+    emitDataChanged();
     return;
   }
   const db = await getDb();
   await db.execute("DELETE FROM flashcards WHERE id = $1", [id]);
+  emitDataChanged();
 }
 
 export async function moveFlashcard(
@@ -419,6 +440,7 @@ export async function moveFlashcard(
         : card
     );
     saveLocalDb(localDb);
+    emitDataChanged();
     return;
   }
   const db = await getDb();
@@ -426,6 +448,7 @@ export async function moveFlashcard(
     "UPDATE flashcards SET folder_id = $1, updated_at = $2 WHERE id = $3",
     [folderId, nowISO(), id]
   );
+  emitDataChanged();
 }
 
 export async function getDueFlashcards(
@@ -617,6 +640,7 @@ export async function submitReview(
       ]
     );
   }
+  emitDataChanged();
 
   return {
     quality,
@@ -667,16 +691,20 @@ export async function getStudyStats(folderId?: string): Promise<StudyStats> {
     const localDb = getLocalDb();
     const cards = folderId
       ? localDb.flashcards.filter((card) => card.folder_id === folderId)
-      : localDb.flashcards;
+      : localDb.flashcards.filter((card) => card.folder_id !== null);
     const totalCards = cards.length;
     const dueToday = cards.filter(
       (card) => !card.due_date || card.due_date <= now
     ).length;
+    const allowedCardIds = new Set(cards.map((card) => card.id));
     const reviewedToday = localDb.reviews.filter(
-      (review) => review.reviewed_at >= todayISO
+      (review) => review.reviewed_at >= todayISO && allowedCardIds.has(review.flashcard_id)
     ).length;
     const correctToday = localDb.reviews.filter(
-      (review) => review.reviewed_at >= todayISO && review.correct
+      (review) =>
+        review.reviewed_at >= todayISO &&
+        review.correct &&
+        allowedCardIds.has(review.flashcard_id)
     ).length;
     return {
       total_cards: totalCards,
@@ -705,28 +733,56 @@ export async function getStudyStats(folderId?: string): Promise<StudyStats> {
     dueToday = dtRows[0]?.count || 0;
   } else {
     const tcRows = await db.select<{ count: number }[]>(
-      "SELECT COUNT(*) as count FROM flashcards"
+      "SELECT COUNT(*) as count FROM flashcards WHERE folder_id IS NOT NULL"
     );
     totalCards = tcRows[0]?.count || 0;
 
     const dtRows = await db.select<{ count: number }[]>(
-      "SELECT COUNT(*) as count FROM flashcards WHERE due_date IS NULL OR due_date <= $1",
+      "SELECT COUNT(*) as count FROM flashcards WHERE folder_id IS NOT NULL AND (due_date IS NULL OR due_date <= $1)",
       [now]
     );
     dueToday = dtRows[0]?.count || 0;
   }
 
-  const reviewedRows = await db.select<{ count: number }[]>(
-    "SELECT COUNT(*) as count FROM reviews WHERE reviewed_at >= $1",
-    [todayISO]
-  );
-  const reviewedToday = reviewedRows[0]?.count || 0;
+  let reviewedToday = 0;
+  let correctToday = 0;
+  if (folderId) {
+    const reviewedRows = await db.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count
+       FROM reviews r
+       JOIN flashcards f ON f.id = r.flashcard_id
+       WHERE r.reviewed_at >= $1 AND f.folder_id = $2`,
+      [todayISO, folderId]
+    );
+    reviewedToday = reviewedRows[0]?.count || 0;
 
-  const correctRows = await db.select<{ count: number }[]>(
-    "SELECT COUNT(*) as count FROM reviews WHERE reviewed_at >= $1 AND correct = 1",
-    [todayISO]
-  );
-  const correctToday = correctRows[0]?.count || 0;
+    const correctRows = await db.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count
+       FROM reviews r
+       JOIN flashcards f ON f.id = r.flashcard_id
+       WHERE r.reviewed_at >= $1 AND r.correct = 1 AND f.folder_id = $2`,
+      [todayISO, folderId]
+    );
+    correctToday = correctRows[0]?.count || 0;
+  } else {
+    const reviewedRows = await db.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count
+       FROM reviews r
+       JOIN flashcards f ON f.id = r.flashcard_id
+       WHERE r.reviewed_at >= $1 AND f.folder_id IS NOT NULL`,
+      [todayISO]
+    );
+    reviewedToday = reviewedRows[0]?.count || 0;
+
+    const correctRows = await db.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count
+       FROM reviews r
+       JOIN flashcards f ON f.id = r.flashcard_id
+       WHERE r.reviewed_at >= $1 AND r.correct = 1 AND f.folder_id IS NOT NULL`,
+      [todayISO]
+    );
+    correctToday = correctRows[0]?.count || 0;
+  }
 
   return {
     total_cards: totalCards,

@@ -1,6 +1,6 @@
 import type { Flashcard } from "@/lib/types";
 import { LaTeXRenderer } from "./LaTeXRenderer";
-import { ImageDisplay } from "./ImageDisplay";
+import { ZoomableImage } from "./ZoomableImage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Check, X } from "lucide-react";
@@ -98,13 +98,5 @@ function FlashcardContent({
     return <LaTeXRenderer content={content} />;
   }
 
-  return (
-    <div className="flex justify-center">
-      <ImageDisplay
-        src={content}
-        alt="Flashcard content"
-        className="max-w-full max-h-64 rounded-lg"
-      />
-    </div>
-  );
+  return <ZoomableImage src={content} alt="Flashcard content" />;
 }

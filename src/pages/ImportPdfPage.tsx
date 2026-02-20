@@ -19,9 +19,11 @@ import {
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
   decodePdfBase64,
+  getImportById,
   linkFlashcardsToImport,
   listRecentImports,
   savePdfImport,
+  saveRegionsToImport,
   touchImport,
   type PdfImportItem,
 } from "@/lib/import-library";
@@ -50,6 +52,7 @@ export default function ImportPdfPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const folderId = searchParams.get("folderId") || "";
+  const importId = searchParams.get("importId");
   const { folders } = useAppStore();
 
   const [pageImages, setPageImages] = useState<string[]>([]);
@@ -81,6 +84,7 @@ export default function ImportPdfPage() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [recentImports, setRecentImports] = useState<PdfImportItem[]>([]);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -98,7 +102,7 @@ export default function ImportPdfPage() {
     refreshRecentImports();
   }, [refreshRecentImports]);
 
-  const renderPdfToImages = useCallback(async (data: ArrayBuffer) => {
+  const renderPdfToImages = useCallback(async (data: ArrayBuffer): Promise<boolean> => {
     setLoading(true);
     try {
       const pdfjsLib = await import("pdfjs-dist");
@@ -149,24 +153,95 @@ export default function ImportPdfPage() {
         images.push(canvas.toDataURL("image/png"));
       }
 
+      if (images.length === 0) {
+        throw new Error("PDF has no pages");
+      }
+
       setPageImages(images);
-      setRegions([]);
+      return true;
     } catch (err) {
       console.error("Failed to render PDF:", err);
+      setPageImages([]);
+      setOutline([]);
+      return false;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!importId) return;
+
+    const loadImport = async () => {
+      try {
+        const item = await getImportById(importId);
+        if (!item || item.kind !== "pdf" || cancelled) {
+          if (!cancelled) {
+            setImportError("Could not load saved PDF import.");
+          }
+          return;
+        }
+        setImportError(null);
+        setFileName(item.name);
+        const buffer = decodePdfBase64(item.base64Data);
+        let rendered = await renderPdfToImages(buffer);
+        if (!rendered && item.sourcePath) {
+          try {
+            const { readFile } = await import("@tauri-apps/plugin-fs");
+            const data = await readFile(item.sourcePath);
+            const sourceBuffer = data.buffer.slice(
+              data.byteOffset,
+              data.byteOffset + data.byteLength
+            ) as ArrayBuffer;
+            rendered = await renderPdfToImages(sourceBuffer);
+          } catch (fallbackErr) {
+            console.error("Failed to load PDF from sourcePath fallback:", fallbackErr);
+          }
+        }
+        if (!rendered || cancelled) {
+          if (!cancelled) {
+            setImportError("Failed to open this saved PDF import.");
+          }
+          return;
+        }
+        setRegions(item.regions ?? []);
+        setActiveImportId(item.id);
+        await touchImport(item.id);
+        await refreshRecentImports();
+      } catch (err) {
+        console.error("Failed to preload saved PDF import:", err);
+        if (!cancelled) {
+          setImportError("Failed to open this saved PDF import.");
+        }
+      }
+    };
+
+    void loadImport();
+    return () => {
+      cancelled = true;
+    };
+  }, [importId, refreshRecentImports, renderPdfToImages]);
+
   const handleFile = useCallback(
     async (file: File) => {
       if (!file.name.toLowerCase().endsWith(".pdf")) return;
       setFileName(file.name);
+      setImportError(null);
       const buffer = await file.arrayBuffer();
-      await renderPdfToImages(buffer);
-      const savedImport = await savePdfImport({ name: file.name, buffer });
-      setActiveImportId(savedImport.id);
-      await refreshRecentImports();
+      const rendered = await renderPdfToImages(buffer);
+      if (!rendered) {
+        setImportError("Failed to read this PDF. Try another file.");
+        return;
+      }
+      setRegions([]);
+      try {
+        const savedImport = await savePdfImport({ name: file.name, buffer });
+        setActiveImportId(savedImport.id);
+        await refreshRecentImports();
+      } catch (err) {
+        console.error("Failed to save PDF in import library:", err);
+      }
     },
     [refreshRecentImports, renderPdfToImages]
   );
@@ -192,6 +267,7 @@ export default function ImportPdfPage() {
       if (path) {
         const pathStr = path as string;
         setFileName(pathStr.split("/").pop() || pathStr);
+        setImportError(null);
         try {
           const { readFile } = await import("@tauri-apps/plugin-fs");
           const data = await readFile(pathStr);
@@ -199,13 +275,23 @@ export default function ImportPdfPage() {
             data.byteOffset,
             data.byteOffset + data.byteLength
           ) as ArrayBuffer;
-          await renderPdfToImages(buffer);
-          const savedImport = await savePdfImport({
-            name: pathStr.split("/").pop() || "Imported PDF",
-            buffer,
-          });
-          setActiveImportId(savedImport.id);
-          await refreshRecentImports();
+          const rendered = await renderPdfToImages(buffer);
+          if (!rendered) {
+            setImportError("Failed to read this PDF. Try another file.");
+            return;
+          }
+          setRegions([]);
+          try {
+            const savedImport = await savePdfImport({
+              name: pathStr.split("/").pop() || "Imported PDF",
+              buffer,
+              sourcePath: pathStr,
+            });
+            setActiveImportId(savedImport.id);
+            await refreshRecentImports();
+          } catch (err) {
+            console.error("Failed to save PDF in import library:", err);
+          }
         } catch {
           console.error("Could not read file via Tauri FS");
         }
@@ -246,13 +332,39 @@ export default function ImportPdfPage() {
     setRegions(prev => prev.map(r => r.id === updatedRegion.id ? updatedRegion : r));
   }, []);
 
-  // We use CSS for label now via AnnotationCanvas so getLabel is omitted from use
+  // Auto-save regions to import library (debounced)
+  useEffect(() => {
+    if (!activeImportId || regions.length === 0) return;
+    const timer = setTimeout(() => {
+      saveRegionsToImport(activeImportId, regions);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [regions, activeImportId]);
 
   const handleUseRecentImport = useCallback(
     async (item: PdfImportItem) => {
+      setImportError(null);
       setFileName(item.name);
       const buffer = decodePdfBase64(item.base64Data);
-      await renderPdfToImages(buffer);
+      let rendered = await renderPdfToImages(buffer);
+      if (!rendered && item.sourcePath) {
+        try {
+          const { readFile } = await import("@tauri-apps/plugin-fs");
+          const data = await readFile(item.sourcePath);
+          const sourceBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength
+          ) as ArrayBuffer;
+          rendered = await renderPdfToImages(sourceBuffer);
+        } catch (fallbackErr) {
+          console.error("Failed to load PDF from sourcePath fallback:", fallbackErr);
+        }
+      }
+      if (!rendered) {
+        setImportError("Failed to open this saved PDF import.");
+        return;
+      }
+      setRegions(item.regions ?? []);
       setActiveImportId(item.id);
       await touchImport(item.id);
       await refreshRecentImports();
@@ -263,6 +375,7 @@ export default function ImportPdfPage() {
   const handleCreateCards = async () => {
     if (!folderId || sortedQuestions.length === 0) return;
     setCreating(true);
+    setImportError(null);
 
     try {
       const createdCardIds: string[] = [];
@@ -334,6 +447,9 @@ export default function ImportPdfPage() {
       navigate(`/folder?id=${folderId}`);
     } catch (err) {
       console.error("Failed to create flashcards:", err);
+      setImportError(
+        `Failed to import cards: ${err instanceof Error ? err.message : String(err)}`
+      );
     } finally {
       setCreating(false);
     }
@@ -400,6 +516,14 @@ export default function ImportPdfPage() {
           )}
         </div>
       </div>
+
+      {importError && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="py-3 text-sm text-destructive">
+            {importError}
+          </CardContent>
+        </Card>
+      )}
 
       {pageImages.length === 0 ? (
         <>
@@ -533,6 +657,11 @@ export default function ImportPdfPage() {
               <Upload className="h-4 w-4 ml-2 opacity-80" />
             </Button>
           </div>
+          {importError && (
+            <p className="absolute -top-7 left-1/2 -translate-x-1/2 text-xs text-destructive bg-background/90 px-2 py-1 rounded-md border border-destructive/30">
+              {importError}
+            </p>
+          )}
         </div>
       )}
     </div>

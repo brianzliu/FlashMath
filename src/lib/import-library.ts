@@ -2,6 +2,17 @@ import localforage from "localforage";
 
 export type ImportKind = "image" | "pdf";
 
+export interface SavedRegion {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  role: "question" | "answer" | null;
+  pageIndex: number;
+  labelNumber: number;
+}
+
 interface ImportBase {
   id: string;
   kind: ImportKind;
@@ -9,6 +20,7 @@ interface ImportBase {
   createdAt: number;
   lastUsedAt: number;
   linkedFlashcardIds: string[];
+  regions?: SavedRegion[];
 }
 
 export interface ImageImportItem extends ImportBase {
@@ -20,6 +32,7 @@ export interface ImageImportItem extends ImportBase {
 export interface PdfImportItem extends ImportBase {
   kind: "pdf";
   base64Data: string;
+  sourcePath?: string;
 }
 
 export type ImportLibraryItem = ImageImportItem | PdfImportItem;
@@ -55,6 +68,24 @@ async function setItems(items: ImportLibraryItem[]): Promise<void> {
   await store.setItem(INDEX_KEY, trimmed);
 }
 
+async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
+  const blob = new Blob([buffer], { type: "application/pdf" });
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Failed to encode PDF data"));
+        return;
+      }
+      const commaIndex = result.indexOf(",");
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+    };
+    reader.onerror = () => reject(new Error("Failed to read PDF blob"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export async function listRecentImports(
   kind?: ImportKind,
   limit = 8
@@ -62,6 +93,11 @@ export async function listRecentImports(
   const items = await getItems();
   const filtered = kind ? items.filter((item) => item.kind === kind) : items;
   return filtered.sort((a, b) => b.lastUsedAt - a.lastUsedAt).slice(0, limit);
+}
+
+export async function getImportById(id: string): Promise<ImportLibraryItem | null> {
+  const items = await getItems();
+  return items.find((item) => item.id === id) || null;
 }
 
 export async function saveImageImport(input: {
@@ -89,19 +125,17 @@ export async function saveImageImport(input: {
 export async function savePdfImport(input: {
   name: string;
   buffer: ArrayBuffer;
+  sourcePath?: string;
 }): Promise<PdfImportItem> {
   const now = Date.now();
-  const bytes = new Uint8Array(input.buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  const base64Data = await arrayBufferToBase64(input.buffer);
 
   const newItem: PdfImportItem = {
     id: createId(),
     kind: "pdf",
     name: input.name,
-    base64Data: btoa(binary),
+    base64Data,
+    sourcePath: input.sourcePath,
     createdAt: now,
     lastUsedAt: now,
     linkedFlashcardIds: [],
@@ -149,16 +183,51 @@ export async function unlinkFlashcardFromImports(flashcardId: string): Promise<v
   await setItems(updated);
 }
 
+export async function saveRegionsToImport(
+  importId: string,
+  regions: SavedRegion[]
+): Promise<void> {
+  const items = await getItems();
+  const updated = items.map((item) =>
+    item.id === importId ? { ...item, regions } : item
+  );
+  await setItems(updated);
+}
+
 export async function removeImportItem(id: string): Promise<void> {
   const items = await getItems();
   await setItems(items.filter((item) => item.id !== id));
 }
 
 export function decodePdfBase64(base64Data: string): ArrayBuffer {
-  const binary = atob(base64Data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+  const raw = base64Data.trim();
+  const seed = raw.includes(",") ? raw.slice(raw.indexOf(",") + 1) : raw;
+  const candidates = new Set<string>();
+  candidates.add(seed);
+  candidates.add(seed.replace(/\s/g, ""));
+  const compact = seed.replace(/\s/g, "");
+  candidates.add(compact.replace(/-/g, "+").replace(/_/g, "/"));
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const padLength = (4 - (candidate.length % 4)) % 4;
+    const padded = candidate + "=".repeat(padLength);
+    try {
+      const binary = atob(padded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    } catch {
+      // Try next candidate format.
+    }
+  }
+
+  // Legacy fallback: treat as raw binary string.
+  const bytes = new Uint8Array(seed.length);
+  for (let i = 0; i < seed.length; i++) {
+    bytes[i] = seed.charCodeAt(i) & 0xff;
   }
   return bytes.buffer;
 }

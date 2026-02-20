@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use std::path::PathBuf;
 use tauri::Manager;
 use uuid::Uuid;
@@ -6,28 +7,20 @@ use uuid::Uuid;
 pub async fn get_image_as_data_url(
     image_path: String,
 ) -> Result<String, String> {
-    let bytes = tokio::fs::read(&image_path)
-        .await
-        .map_err(|e| format!("Failed to read image: {}", e))?;
+    use super::capture::load_image_oriented;
 
-    let ext = std::path::Path::new(&image_path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("png");
+    let img = load_image_oriented(&image_path)?;
 
-    let mime = match ext {
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        _ => "image/png",
-    };
+    let mut buf = Vec::new();
+    img.write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode image: {}", e))?;
 
     let b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        &bytes,
+        &buf,
     );
 
-    Ok(format!("data:{};base64,{}", mime, b64))
+    Ok(format!("data:image/png;base64,{}", b64))
 }
 
 #[tauri::command]

@@ -1,8 +1,48 @@
 use base64::Engine;
-use image::GenericImageView;
+use image::{DynamicImage, GenericImageView, ImageReader};
 use std::path::PathBuf;
 use tauri::Manager;
 use uuid::Uuid;
+
+fn read_exif_orientation(path: &str) -> u32 {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return 1,
+    };
+    let mut buf = std::io::BufReader::new(file);
+    let reader = match exif::Reader::new().read_from_container(&mut buf) {
+        Ok(r) => r,
+        Err(_) => return 1,
+    };
+    reader
+        .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+        .and_then(|f| f.value.get_uint(0))
+        .unwrap_or(1)
+}
+
+fn apply_orientation(img: DynamicImage, orientation: u32) -> DynamicImage {
+    match orientation {
+        2 => img.fliph(),
+        3 => img.rotate180(),
+        4 => img.flipv(),
+        5 => img.rotate90().fliph(),
+        6 => img.rotate90(),
+        7 => img.rotate270().fliph(),
+        8 => img.rotate270(),
+        _ => img, // 1 = normal, or unknown
+    }
+}
+
+pub fn load_image_oriented(path: &str) -> Result<DynamicImage, String> {
+    let orientation = read_exif_orientation(path);
+    let img = ImageReader::open(path)
+        .map_err(|e| format!("Failed to open image: {}", e))?
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to guess image format: {}", e))?
+        .decode()
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+    Ok(apply_orientation(img, orientation))
+}
 
 #[tauri::command]
 pub async fn crop_region(
@@ -13,12 +53,13 @@ pub async fn crop_region(
     width: u32,
     height: u32,
 ) -> Result<String, String> {
-    let img = image::open(&image_path).map_err(|e| format!("Failed to open image: {}", e))?;
+    let img = load_image_oriented(&image_path)?;
 
     let (img_w, img_h) = img.dimensions();
-    if x + width > img_w || y + height > img_h {
-        return Err("Crop region exceeds image bounds".to_string());
-    }
+    let x = x.min(img_w.saturating_sub(1));
+    let y = y.min(img_h.saturating_sub(1));
+    let width = width.min(img_w - x).max(1);
+    let height = height.min(img_h - y).max(1);
 
     let cropped = img.crop_imm(x, y, width, height);
 
@@ -38,10 +79,16 @@ pub async fn save_image_from_data_url(
     app: tauri::AppHandle,
     data_url: String,
 ) -> Result<String, String> {
-    let data = if let Some(base64_data) = data_url.strip_prefix("data:image/png;base64,") {
-        base64_data
+    let (data, ext) = if let Some(base64_data) = data_url.strip_prefix("data:image/png;base64,") {
+        (base64_data, "png")
     } else if let Some(base64_data) = data_url.strip_prefix("data:image/jpeg;base64,") {
-        base64_data
+        (base64_data, "jpg")
+    } else if let Some(base64_data) = data_url.strip_prefix("data:image/webp;base64,") {
+        (base64_data, "webp")
+    } else if let Some(base64_data) = data_url.strip_prefix("data:image/gif;base64,") {
+        (base64_data, "gif")
+    } else if let Some(base64_data) = data_url.strip_prefix("data:image/bmp;base64,") {
+        (base64_data, "bmp")
     } else {
         return Err("Unsupported image format in data URL".to_string());
     };
@@ -53,7 +100,7 @@ pub async fn save_image_from_data_url(
     .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
     let captures_dir = get_captures_dir(&app)?;
-    let filename = format!("{}.png", Uuid::new_v4());
+    let filename = format!("{}.{}", Uuid::new_v4(), ext);
     let output_path = captures_dir.join(&filename);
 
     tokio::fs::write(&output_path, &bytes)

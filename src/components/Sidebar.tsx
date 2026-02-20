@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { confirmDestructive } from "@/lib/dialogs";
 
 interface FolderWithStats extends Folder {
   cardCount: number;
@@ -71,6 +72,16 @@ export function Sidebar() {
     loadFolders();
   }, [loadFolders]);
 
+  useEffect(() => {
+    const refresh = () => {
+      void loadFolders();
+    };
+    window.addEventListener("flashmath:data-changed", refresh);
+    return () => {
+      window.removeEventListener("flashmath:data-changed", refresh);
+    };
+  }, [loadFolders]);
+
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!name) {
@@ -105,6 +116,12 @@ export function Sidebar() {
   };
 
   const handleDeleteFolder = async (id: string) => {
+    const confirmed = await confirmDestructive(
+      "Delete this deck? Existing cards will become unassigned.",
+      "Delete Deck"
+    );
+    if (!confirmed) return;
+
     try {
       await commands.deleteFolder(id);
       removeFolder(id);
@@ -114,7 +131,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r border-border bg-sidebar">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar">
       {/* Logo */}
       <div className="px-5 pt-5 pb-4">
         <Link to="/" className="flex items-center gap-2.5">
