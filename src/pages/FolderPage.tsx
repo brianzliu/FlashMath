@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { CardPreviewModal } from "@/components/CardPreviewModal";
 import { unlinkFlashcardFromImports } from "@/lib/import-library";
+import { confirmDestructive } from "@/lib/dialogs";
 
 export default function FolderPage() {
   const [searchParams] = useSearchParams();
@@ -95,7 +96,11 @@ export default function FolderPage() {
       : 0;
 
   const handleDeleteCard = async (id: string) => {
-    if (!window.confirm("Delete this flashcard? This action cannot be undone.")) {
+    const confirmed = await confirmDestructive(
+      "Delete this flashcard? This action cannot be undone.",
+      "Delete Flashcard"
+    );
+    if (!confirmed) {
       return;
     }
     try {
@@ -115,7 +120,11 @@ export default function FolderPage() {
   const handleBulkDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (!window.confirm(`Delete ${ids.length} selected flashcards? This cannot be undone.`)) {
+    const confirmed = await confirmDestructive(
+      `Delete ${ids.length} selected flashcards? This cannot be undone.`,
+      "Delete Selected Flashcards"
+    );
+    if (!confirmed) {
       return;
     }
     try {
@@ -203,12 +212,6 @@ export default function FolderPage() {
               </Link>
             </Button>
           )}
-          <Button variant="secondary" asChild>
-            <Link to={`/card?folderId=${folderId}`}>
-              <Plus className="h-4 w-4 mr-1.5" />
-              New Card
-            </Link>
-          </Button>
         </div>
       </div>
 
@@ -308,7 +311,15 @@ export default function FolderPage() {
 
       <div>
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h2 className="text-lg font-bold">Cards</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold">Cards</h2>
+            <Button size="sm" variant="secondary" asChild>
+              <Link to={`/card?folderId=${folderId}`}>
+                <Plus className="h-4 w-4 mr-1.5" />
+                New Card
+              </Link>
+            </Button>
+          </div>
           {flashcards.length > 0 && (
             <div className="flex items-center gap-2">
               <Button

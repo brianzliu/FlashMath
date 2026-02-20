@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Pencil, Trash2, FolderOpen } from "lucide-react";
 import { CardPreviewModal } from "@/components/CardPreviewModal";
 import { unlinkFlashcardFromImports } from "@/lib/import-library";
+import { confirmDestructive } from "@/lib/dialogs";
 
 type SortMode = "newest" | "oldest" | "due-first" | "ease-asc" | "ease-desc";
 type FilterMode = "all" | "due" | "not-due" | "new";
@@ -102,7 +103,11 @@ export default function BrowsePage() {
   }, [allCards, selectedFolder, filterMode, search, sortMode]);
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm("Delete this flashcard? This action cannot be undone.")) {
+    const confirmed = await confirmDestructive(
+      "Delete this flashcard? This action cannot be undone.",
+      "Delete Flashcard"
+    );
+    if (!confirmed) {
       return;
     }
     try {
@@ -122,7 +127,11 @@ export default function BrowsePage() {
   const handleBulkDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (!window.confirm(`Delete ${ids.length} selected flashcards? This cannot be undone.`)) {
+    const confirmed = await confirmDestructive(
+      `Delete ${ids.length} selected flashcards? This cannot be undone.`,
+      "Delete Selected Flashcards"
+    );
+    if (!confirmed) {
       return;
     }
     try {
