@@ -24,6 +24,14 @@ function isBrowser(): boolean {
   return typeof window !== "undefined";
 }
 
+function isTauriRuntime(): boolean {
+  if (!isBrowser()) return false;
+  return (
+    "__TAURI_INTERNALS__" in window ||
+    "__TAURI__" in window
+  );
+}
+
 function getLocalDb(): LocalDb {
   if (!isBrowser()) {
     return { folders: [], flashcards: [], reviews: [], settings: {} };
@@ -63,7 +71,13 @@ async function useLocalMode(): Promise<boolean> {
     await getDb();
     dbMode = "sql";
     return false;
-  } catch {
+  } catch (err) {
+    // In the desktop app we should never silently fall back to browser localStorage,
+    // because that can make real SQL data look like it vanished.
+    if (isTauriRuntime()) {
+      dbMode = null;
+      throw err;
+    }
     dbMode = "local";
     return true;
   }
