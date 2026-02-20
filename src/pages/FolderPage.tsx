@@ -21,6 +21,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { CardPreviewModal } from "@/components/CardPreviewModal";
+import { unlinkFlashcardFromImports } from "@/lib/import-library";
 
 export default function FolderPage() {
   const [searchParams] = useSearchParams();
@@ -33,6 +34,7 @@ export default function FolderPage() {
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const [deadlineInput, setDeadlineInput] = useState("");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let active = true;
@@ -93,9 +95,34 @@ export default function FolderPage() {
       : 0;
 
   const handleDeleteCard = async (id: string) => {
+    if (!window.confirm("Delete this flashcard? This action cannot be undone.")) {
+      return;
+    }
     try {
       await commands.deleteFlashcard(id);
+      await unlinkFlashcardFromImports(id);
       setFlashcards((prev) => prev.filter((c) => c.id !== id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch {
+      /* noop */
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected flashcards? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await Promise.all(ids.map((id) => commands.deleteFlashcard(id)));
+      await Promise.all(ids.map((id) => unlinkFlashcardFromImports(id)));
+      setFlashcards((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+      setSelectedIds(new Set());
     } catch {
       /* noop */
     }
@@ -280,7 +307,36 @@ export default function FolderPage() {
       </div>
 
       <div>
-        <h2 className="text-lg font-bold mb-3">Cards</h2>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-lg font-bold">Cards</h2>
+          {flashcards.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSelectedIds(
+                    selectedIds.size === flashcards.length
+                      ? new Set()
+                      : new Set(flashcards.map((c) => c.id))
+                  );
+                }}
+              >
+                {selectedIds.size === flashcards.length ? "Clear Selection" : "Select All"}
+              </Button>
+              {selectedIds.size > 0 && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleBulkDelete}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Delete Selected ({selectedIds.size})
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
         {loading ? (
           <p className="text-muted-foreground py-4 text-center">
             Loading cards...
@@ -304,6 +360,18 @@ export default function FolderPage() {
                 card={card}
                 onDelete={() => handleDeleteCard(card.id)}
                 onClick={() => setPreviewIndex(index)}
+                selected={selectedIds.has(card.id)}
+                onToggleSelect={() => {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(card.id)) {
+                      next.delete(card.id);
+                    } else {
+                      next.add(card.id);
+                    }
+                    return next;
+                  });
+                }}
               />
             ))}
           </div>
@@ -326,16 +394,28 @@ function FlashcardRow({
   card,
   onDelete,
   onClick,
+  selected,
+  onToggleSelect,
 }: {
   card: Flashcard;
   onDelete: () => void;
   onClick: () => void;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const isDue = !card.due_date || new Date(card.due_date) <= new Date();
 
   return (
     <Card className="transition-all hover:shadow-sm hover:border-primary/20 cursor-pointer" onClick={onClick}>
       <CardContent className="p-4 flex items-center gap-4">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          onClick={(e) => e.stopPropagation()}
+          className="h-4 w-4 rounded border-border accent-primary"
+          aria-label="Select flashcard"
+        />
         <div
           className={cn(
             "h-2.5 w-2.5 rounded-full shrink-0",

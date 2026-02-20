@@ -19,6 +19,7 @@ import {
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
   decodePdfBase64,
+  linkFlashcardsToImport,
   listRecentImports,
   savePdfImport,
   touchImport,
@@ -79,6 +80,7 @@ export default function ImportPdfPage() {
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [recentImports, setRecentImports] = useState<PdfImportItem[]>([]);
+  const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -162,7 +164,8 @@ export default function ImportPdfPage() {
       setFileName(file.name);
       const buffer = await file.arrayBuffer();
       await renderPdfToImages(buffer);
-      await savePdfImport({ name: file.name, buffer });
+      const savedImport = await savePdfImport({ name: file.name, buffer });
+      setActiveImportId(savedImport.id);
       await refreshRecentImports();
     },
     [refreshRecentImports, renderPdfToImages]
@@ -197,10 +200,11 @@ export default function ImportPdfPage() {
             data.byteOffset + data.byteLength
           ) as ArrayBuffer;
           await renderPdfToImages(buffer);
-          await savePdfImport({
+          const savedImport = await savePdfImport({
             name: pathStr.split("/").pop() || "Imported PDF",
             buffer,
           });
+          setActiveImportId(savedImport.id);
           await refreshRecentImports();
         } catch {
           console.error("Could not read file via Tauri FS");
@@ -249,6 +253,7 @@ export default function ImportPdfPage() {
       setFileName(item.name);
       const buffer = decodePdfBase64(item.base64Data);
       await renderPdfToImages(buffer);
+      setActiveImportId(item.id);
       await touchImport(item.id);
       await refreshRecentImports();
     },
@@ -260,6 +265,7 @@ export default function ImportPdfPage() {
     setCreating(true);
 
     try {
+      const createdCardIds: string[] = [];
       const savedPages = new Map<number, string>();
       const getSavedPage = async (pageIndex: number) => {
         if (savedPages.has(pageIndex)) return savedPages.get(pageIndex)!;
@@ -311,13 +317,18 @@ export default function ImportPdfPage() {
           }
         }
 
-        await commands.createFlashcard({
+        const created = await commands.createFlashcard({
           folder_id: folderId,
           question_type: qType,
           question_content: qContent,
           answer_type: aType,
           answer_content: aContent,
         });
+        createdCardIds.push(created.id);
+      }
+
+      if (activeImportId && createdCardIds.length > 0) {
+        await linkFlashcardsToImport(activeImportId, createdCardIds);
       }
 
       navigate(`/folder?id=${folderId}`);

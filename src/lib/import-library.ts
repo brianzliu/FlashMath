@@ -8,6 +8,7 @@ interface ImportBase {
   name: string;
   createdAt: number;
   lastUsedAt: number;
+  linkedFlashcardIds: string[];
 }
 
 export interface ImageImportItem extends ImportBase {
@@ -41,7 +42,10 @@ function createId(): string {
 async function getItems(): Promise<ImportLibraryItem[]> {
   const items = await store.getItem<ImportLibraryItem[]>(INDEX_KEY);
   if (!items) return [];
-  return items;
+  return items.map((item) => ({
+    ...item,
+    linkedFlashcardIds: item.linkedFlashcardIds ?? [],
+  }));
 }
 
 async function setItems(items: ImportLibraryItem[]): Promise<void> {
@@ -74,6 +78,7 @@ export async function saveImageImport(input: {
     sourcePath: input.sourcePath,
     createdAt: now,
     lastUsedAt: now,
+    linkedFlashcardIds: [],
   };
 
   const existing = await getItems();
@@ -99,6 +104,7 @@ export async function savePdfImport(input: {
     base64Data: btoa(binary),
     createdAt: now,
     lastUsedAt: now,
+    linkedFlashcardIds: [],
   };
 
   const existing = await getItems();
@@ -112,6 +118,40 @@ export async function touchImport(id: string): Promise<void> {
     item.id === id ? { ...item, lastUsedAt: Date.now() } : item
   );
   await setItems(updated);
+}
+
+export async function linkFlashcardsToImport(
+  importId: string,
+  flashcardIds: string[]
+): Promise<void> {
+  if (flashcardIds.length === 0) return;
+  const idSet = new Set(flashcardIds);
+  const items = await getItems();
+  const updated = items.map((item) => {
+    if (item.id !== importId) return item;
+    const existing = new Set(item.linkedFlashcardIds);
+    for (const id of idSet) existing.add(id);
+    return {
+      ...item,
+      linkedFlashcardIds: Array.from(existing),
+      lastUsedAt: Date.now(),
+    };
+  });
+  await setItems(updated);
+}
+
+export async function unlinkFlashcardFromImports(flashcardId: string): Promise<void> {
+  const items = await getItems();
+  const updated = items.map((item) => ({
+    ...item,
+    linkedFlashcardIds: item.linkedFlashcardIds.filter((id) => id !== flashcardId),
+  }));
+  await setItems(updated);
+}
+
+export async function removeImportItem(id: string): Promise<void> {
+  const items = await getItems();
+  await setItems(items.filter((item) => item.id !== id));
 }
 
 export function decodePdfBase64(base64Data: string): ArrayBuffer {

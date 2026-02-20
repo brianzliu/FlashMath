@@ -13,6 +13,7 @@ import {
   BookOpen,
   Zap,
   Library,
+  Images,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +135,12 @@ export function Sidebar() {
           label="Browse Cards"
           icon={<Library className="h-4 w-4" />}
           active={pathname === "/browse"}
+        />
+        <NavItem
+          to="/imports"
+          label="Import Library"
+          icon={<Images className="h-4 w-4" />}
+          active={pathname === "/imports"}
         />
         <NavItem
           to="/settings"

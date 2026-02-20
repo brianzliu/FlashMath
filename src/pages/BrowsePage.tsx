@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, Pencil, Trash2, FolderOpen } from "lucide-react";
 import { CardPreviewModal } from "@/components/CardPreviewModal";
+import { unlinkFlashcardFromImports } from "@/lib/import-library";
 
 type SortMode = "newest" | "oldest" | "due-first" | "ease-asc" | "ease-desc";
 type FilterMode = "all" | "due" | "not-due" | "new";
@@ -23,6 +24,7 @@ export default function BrowsePage() {
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let active = true;
@@ -100,9 +102,34 @@ export default function BrowsePage() {
   }, [allCards, selectedFolder, filterMode, search, sortMode]);
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this flashcard? This action cannot be undone.")) {
+      return;
+    }
     try {
       await commands.deleteFlashcard(id);
+      await unlinkFlashcardFromImports(id);
       setAllCards((prev) => prev.filter((c) => c.id !== id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch {
+      /* noop */
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected flashcards? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await Promise.all(ids.map((id) => commands.deleteFlashcard(id)));
+      await Promise.all(ids.map((id) => unlinkFlashcardFromImports(id)));
+      setAllCards((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+      setSelectedIds(new Set());
     } catch {
       /* noop */
     }
@@ -184,6 +211,34 @@ export default function BrowsePage() {
         {filteredCards.length} card{filteredCards.length !== 1 ? "s" : ""}
       </p>
 
+      {filteredCards.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setSelectedIds(
+                selectedIds.size === filteredCards.length
+                  ? new Set()
+                  : new Set(filteredCards.map((c) => c.id))
+              );
+            }}
+          >
+            {selectedIds.size === filteredCards.length ? "Clear Selection" : "Select Visible"}
+          </Button>
+          {selectedIds.size > 0 && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={handleBulkDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              Delete Selected ({selectedIds.size})
+            </Button>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p className="text-muted-foreground py-8 text-center">
           Loading cards...
@@ -213,6 +268,24 @@ export default function BrowsePage() {
                 onClick={() => setPreviewIndex(index)}
               >
                 <CardContent className="p-4 flex items-center gap-4">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(card.id)}
+                    onChange={() => {
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(card.id)) {
+                          next.delete(card.id);
+                        } else {
+                          next.add(card.id);
+                        }
+                        return next;
+                      });
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                    aria-label="Select flashcard"
+                  />
                   <div
                     className={cn(
                       "h-2.5 w-2.5 rounded-full shrink-0",

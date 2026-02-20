@@ -4,7 +4,7 @@ import { Sidebar } from "./Sidebar";
 import { AIChatPanel } from "./AIChatPanel";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
-import { Bot } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function Layout() {
@@ -53,25 +53,25 @@ export function Layout() {
     <div className="flex min-h-screen bg-background text-foreground antialiased">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        {/* Top bar with AI toggle */}
-        <div className="sticky top-0 z-20 flex justify-end px-6 pt-3 pb-0 lg:px-10 pointer-events-none">
-          <button
-            onClick={() => setAiPanelOpen(!aiPanelOpen)}
-            className={cn(
-              "pointer-events-auto flex h-8 items-center justify-center rounded-lg transition-all px-3 text-sm font-medium",
-              aiPanelOpen
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "bg-primary text-primary-foreground hover:opacity-90 shadow-sm"
-            )}
-            title={aiPanelOpen ? "Close AI Chat" : "Open AI Chat"}
-          >
-            FlashMath Chat
-          </button>
-        </div>
         <div className="mx-auto max-w-5xl px-6 pb-8 lg:px-10">
           <Outlet />
         </div>
       </main>
+
+      {/* Floating AI chat trigger */}
+      {!aiPanelOpen && (
+        <button
+          onClick={() => setAiPanelOpen(true)}
+          className={cn(
+            "fixed bottom-6 right-6 z-30 inline-flex h-12 w-12 items-center justify-center rounded-full border transition-all shadow-lg",
+            "bg-card text-primary border-primary/40 hover:bg-primary/10 hover:border-primary/60"
+          )}
+          title="Open AI Chat"
+          aria-label="Open AI Chat"
+        >
+          <MessageCircle className="h-5 w-5" />
+        </button>
+      )}
 
       {/* AI Chat Panel — inline split view */}
       <AIChatPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} />

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   listRecentImports,
+  linkFlashcardsToImport,
   saveImageImport,
   touchImport,
   type ImageImportItem,
@@ -36,6 +37,7 @@ export default function ImportImagePage() {
   const [useOcr, setUseOcr] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [recentImports, setRecentImports] = useState<ImageImportItem[]>([]);
+  const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const folderName = useMemo(
@@ -67,7 +69,8 @@ export default function ImportImagePage() {
     }
     setImageUrl(dataUrl);
     setRegions([]);
-    await saveImageImport({ name: file.name, dataUrl });
+    const savedImport = await saveImageImport({ name: file.name, dataUrl });
+    setActiveImportId(savedImport.id);
     await refreshRecentImports();
   }, [refreshRecentImports]);
 
@@ -91,11 +94,12 @@ export default function ImportImagePage() {
         const dataUrl = await commands.getImageAsDataUrl(pathStr);
         setImageUrl(dataUrl);
         setRegions([]);
-        await saveImageImport({
+        const savedImport = await saveImageImport({
           name: pathStr.split("/").pop() || "Imported image",
           dataUrl,
           sourcePath: pathStr,
         });
+        setActiveImportId(savedImport.id);
         await refreshRecentImports();
       }
     } catch {
@@ -115,6 +119,7 @@ export default function ImportImagePage() {
         setImagePath(savedPath);
       }
 
+      setActiveImportId(item.id);
       await touchImport(item.id);
       await refreshRecentImports();
     },
@@ -144,6 +149,7 @@ export default function ImportImagePage() {
     setCreating(true);
 
     try {
+      const createdCardIds: string[] = [];
       for (let i = 0; i < sortedQuestions.length; i++) {
         const q = sortedQuestions[i];
         const a = sortedAnswers[i]; // May be undefined
@@ -206,7 +212,7 @@ export default function ImportImagePage() {
           }
         }
 
-        await commands.createFlashcard({
+        const created = await commands.createFlashcard({
           folder_id: folderId,
           title: qTitle,
           question_type: qType,
@@ -214,6 +220,11 @@ export default function ImportImagePage() {
           answer_type: aType,
           answer_content: aContent,
         });
+        createdCardIds.push(created.id);
+      }
+
+      if (activeImportId && createdCardIds.length > 0) {
+        await linkFlashcardsToImport(activeImportId, createdCardIds);
       }
 
       navigate(`/folder?id=${folderId}`);
