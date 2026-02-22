@@ -61,19 +61,6 @@ export function ZoomableImage({ src, alt = "Flashcard content" }: ZoomableImageP
     setTranslate({ x: 0, y: 0 });
   };
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-      setScale((s) => {
-        const next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s + delta));
-        if (next <= 1) setTranslate({ x: 0, y: 0 });
-        else setTranslate((t) => clampTranslate(t.x, t.y, next));
-        return next;
-      });
-    },
-    [clampTranslate]
-  );
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -122,7 +109,6 @@ export function ZoomableImage({ src, alt = "Flashcard content" }: ZoomableImageP
           isZoomed ? "cursor-grab" : "cursor-default",
           isDragging && "cursor-grabbing"
         )}
-        onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -131,7 +117,7 @@ export function ZoomableImage({ src, alt = "Flashcard content" }: ZoomableImageP
         <ImageDisplay
           src={src}
           alt={alt}
-          className="max-w-full max-h-[70vh] rounded-lg select-none pointer-events-none"
+          className="w-full object-contain max-h-[70vh] rounded-lg select-none pointer-events-none"
           style={{
             transform: `scale(${scale}) translate(${translate.x / scale}px, ${translate.y / scale}px)`,
             transition: isDragging ? "none" : "transform 0.15s ease-out",
@@ -163,18 +149,17 @@ export function ZoomableImage({ src, alt = "Flashcard content" }: ZoomableImageP
         >
           <ZoomIn className="h-3.5 w-3.5" />
         </Button>
-        {isZoomed && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 ml-1"
-            onClick={handleReset}
-            title="Reset zoom"
-          >
-            <RotateCcw className="h-3 w-3 mr-1" />
-            <span className="text-xs">Reset</span>
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("h-7 px-2 ml-1", !isZoomed && "invisible")}
+          onClick={handleReset}
+          title="Reset zoom"
+          disabled={!isZoomed}
+        >
+          <RotateCcw className="h-3 w-3 mr-1" />
+          <span className="text-xs">Reset</span>
+        </Button>
       </div>
     </div>
   );

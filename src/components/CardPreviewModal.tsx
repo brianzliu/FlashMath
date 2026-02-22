@@ -79,7 +79,7 @@ export function CardPreviewModal({
     >
       <div
         ref={modalBodyRef}
-        className="relative bg-background border border-border rounded-2xl shadow-2xl w-full max-w-4xl my-6 max-h-[90vh] overflow-y-auto animate-fade-up"
+        className="relative bg-background border border-border rounded-2xl shadow-2xl w-full max-w-6xl my-6 max-h-[90vh] overflow-y-auto animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

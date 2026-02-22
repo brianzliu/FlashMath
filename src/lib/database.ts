@@ -343,18 +343,18 @@ export async function updateFlashcard(
     localDb.flashcards = localDb.flashcards.map((card) =>
       card.id === id
         ? {
-            ...card,
-            ...data,
-            title:
-              data.title !== undefined ? data.title : card.title,
-            answer_type:
-              data.answer_type !== undefined ? data.answer_type : card.answer_type,
-            answer_content:
-              data.answer_content !== undefined
-                ? data.answer_content
-                : card.answer_content,
-            updated_at: nowISO(),
-          }
+          ...card,
+          ...data,
+          title:
+            data.title !== undefined ? data.title : card.title,
+          answer_type:
+            data.answer_type !== undefined ? data.answer_type : card.answer_type,
+          answer_content:
+            data.answer_content !== undefined
+              ? data.answer_content
+              : card.answer_content,
+          updated_at: nowISO(),
+        }
         : card
     );
     saveLocalDb(localDb);
@@ -541,7 +541,7 @@ export async function submitReview(
     quality = 0;
     easeFactor = Math.max(MIN_EASE, easeFactor - 0.2);
     repetitions = 0;
-    intervalDays = 1;
+    intervalDays = 0;
   } else if (speedRatio <= 0.6) {
     quality = 5;
     easeFactor += 0.15;
@@ -584,14 +584,14 @@ export async function submitReview(
     localDb.flashcards = localDb.flashcards.map((item) =>
       item.id === flashcardId
         ? {
-            ...item,
-            ease_factor: easeFactor,
-            interval_days: intervalDays,
-            repetitions,
-            due_date: dueDate,
-            last_reviewed: now,
-            updated_at: now,
-          }
+          ...item,
+          ease_factor: easeFactor,
+          interval_days: intervalDays,
+          repetitions,
+          due_date: dueDate,
+          last_reviewed: now,
+          updated_at: now,
+        }
         : item
     );
     localDb.reviews.push({
