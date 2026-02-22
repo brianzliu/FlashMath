@@ -122,10 +122,27 @@ export function FlashcardEditor({
   useEffect(() => {
     if (!initialData?.answer_content) return;
     const content = initialData.answer_content;
-    if (isImagePath(content) && !content.startsWith("data:")) {
+
+    if (answerType === "image") {
+      const images = content.split("|||").filter(Boolean);
+      Promise.all(
+        images.map(async (img) => {
+          if (isImagePath(img) && !img.startsWith("data:")) {
+            try {
+              return await commands.getImageAsDataUrl(img);
+            } catch {
+              return img;
+            }
+          }
+          return img;
+        })
+      ).then((urls) => {
+        setAnswerContent(urls.join("|||"));
+      });
+    } else if (isImagePath(content) && !content.startsWith("data:")) {
       commands.getImageAsDataUrl(content).then(setAnswerContent).catch(() => {});
     }
-  }, [initialData?.answer_content]);
+  }, [initialData?.answer_content, answerType]);
 
   // Auto-assess difficulty when timer mode is "llm" and question has content
   useEffect(() => {
@@ -163,6 +180,10 @@ export function FlashcardEditor({
   const questionHasContent = questionContent.trim().length > 0;
   const answerHasContent = answerContent.trim().length > 0;
 
+  const IMAGE_DELIMITER = "|||";
+  const getAnswerImages = (content: string) => content.split(IMAGE_DELIMITER).filter(Boolean);
+  const setAnswerImages = (images: string[]) => images.join(IMAGE_DELIMITER);
+
   const handleClearQuestion = () => {
     setQuestionContent("");
     setQuestionType("latex");
@@ -171,6 +192,17 @@ export function FlashcardEditor({
   const handleClearAnswer = () => {
     setAnswerContent("");
     setAnswerType("latex");
+  };
+
+  const handleRemoveAnswerImage = (index: number) => {
+    const images = getAnswerImages(answerContent);
+    const newImages = images.filter((_, i) => i !== index);
+    if (newImages.length === 0) {
+      setAnswerContent("");
+      setAnswerType("latex");
+    } else {
+      setAnswerContent(setAnswerImages(newImages));
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -208,6 +240,51 @@ export function FlashcardEditor({
     const reader = new FileReader();
     reader.onload = () => setter(reader.result as string);
     reader.readAsDataURL(file);
+  };
+
+  const handleAnswerImageDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    if (files.length === 0) return;
+
+    setAnswerType("image");
+    const readers = files.map((file) => {
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(readers).then((newImages) => {
+      const currentImages =
+        answerType === "image" ? getAnswerImages(answerContent) : [];
+      setAnswerContent(setAnswerImages([...currentImages, ...newImages]));
+    });
+  };
+
+  const handleAnswerFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    if (files.length === 0) return;
+
+    setAnswerType("image");
+    const readers = files.map((file) => {
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(readers).then((newImages) => {
+      const currentImages =
+        answerType === "image" ? getAnswerImages(answerContent) : [];
+      setAnswerContent(setAnswerImages([...currentImages, ...newImages]));
+    });
   };
 
   // --- LLM auto-generate handlers ---
@@ -649,20 +726,32 @@ No other text, just the JSON.`,
             <div
               className="rounded-xl border-2 border-dashed border-border bg-muted/20 p-6 text-center cursor-pointer hover:border-primary/40 transition-colors"
               onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) =>
-                handleImageDrop(e, setAnswerContent, () =>
-                  setAnswerType("image")
-                )
-              }
+              onDrop={handleAnswerImageDrop}
               onClick={() => !answerContent && answerFileInputRef.current?.click()}
             >
               {answerContent ? (
-                <div className="space-y-3">
-                  <ImageDisplay
-                    src={answerContent}
-                    alt="Answer"
-                    className="max-w-full max-h-48 mx-auto rounded-lg"
-                  />
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4 max-h-[400px] overflow-y-auto p-2">
+                    {getAnswerImages(answerContent).map((src, index) => (
+                      <div key={index} className="relative group">
+                        <ImageDisplay
+                          src={src}
+                          alt={`Answer ${index + 1}`}
+                          className="max-w-full rounded-lg shadow-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveAnswerImage(index);
+                          }}
+                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                   <div className="flex items-center justify-center gap-2">
                     <Button
                       type="button"
@@ -670,39 +759,55 @@ No other text, just the JSON.`,
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleConvertToText("answer");
+                        answerFileInputRef.current?.click();
                       }}
-                      disabled={convertingAnswer}
                     >
-                      {convertingAnswer ? (
-                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                      ) : (
-                        <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
-                      )}
-                      {convertingAnswer ? "Converting..." : "Convert to Text"}
+                      <ImagePlus className="h-3.5 w-3.5 mr-1.5" />
+                      Add More Images
                     </Button>
+                    {getAnswerImages(answerContent).length === 1 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleConvertToText("answer");
+                        }}
+                        disabled={convertingAnswer}
+                      >
+                        {convertingAnswer ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        {convertingAnswer ? "Converting..." : "Convert to Text"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <Image className="h-8 w-8 mx-auto text-muted-foreground/40" />
                   <p className="text-sm text-muted-foreground">
-                    Drop an image or click to browse
+                    Drop images or click to browse
                   </p>
-                  {onScreenshot && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onScreenshot();
-                      }}
-                    >
-                      <Camera className="h-3.5 w-3.5 mr-1.5" />
-                      Screenshot
-                    </Button>
-                  )}
+                  <div className="flex items-center justify-center gap-2">
+                    {onScreenshot && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onScreenshot();
+                        }}
+                      >
+                        <Camera className="h-3.5 w-3.5 mr-1.5" />
+                        Screenshot
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -820,17 +925,9 @@ No other text, just the JSON.`,
         ref={answerFileInputRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => {
-            setAnswerType("image");
-            setAnswerContent(reader.result as string);
-          };
-          reader.readAsDataURL(file);
-        }}
+        onChange={handleAnswerFileChange}
       />
     </form>
   );

@@ -177,7 +177,11 @@ export default function StudyPage() {
         ))}
       </div>
 
-      <Timer totalSeconds={currentCard.timer_seconds} running={timerRunning} />
+      <Timer
+        key={currentCard.id}
+        totalSeconds={currentCard.timer_seconds}
+        running={timerRunning}
+      />
 
       <StudyCard
         card={currentCard}

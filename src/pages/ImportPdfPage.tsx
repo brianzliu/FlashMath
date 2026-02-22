@@ -389,8 +389,8 @@ export default function ImportPdfPage() {
 
       for (let i = 0; i < sortedQuestions.length; i++) {
         const q = sortedQuestions[i];
-        // Find matching answer by explicitly linking question label number to answer label number
-        const a = sortedAnswers.find(ans => ans.labelNumber === q.labelNumber);
+        // Find matching answers by explicitly linking question label number to answer label number
+        const matchingAnswers = sortedAnswers.filter(ans => ans.labelNumber === q.labelNumber);
 
         const qPagePath = await getSavedPage(q.pageIndex);
         const qPath = await commands.cropRegion(qPagePath, q.x, q.y, q.width, q.height);
@@ -411,22 +411,26 @@ export default function ImportPdfPage() {
         let aType: "image" | "latex" | undefined;
         let aContent: string | undefined;
 
-        if (a) {
-          const aPagePath = await getSavedPage(a.pageIndex);
-          const aPath = await commands.cropRegion(aPagePath, a.x, a.y, a.width, a.height);
+        if (matchingAnswers.length > 0) {
+          const answerPaths: string[] = [];
+          for (const a of matchingAnswers) {
+            const aPagePath = await getSavedPage(a.pageIndex);
+            const aPath = await commands.cropRegion(aPagePath, a.x, a.y, a.width, a.height);
+            answerPaths.push(aPath);
+          }
 
-          if (useOcr) {
+          if (useOcr && answerPaths.length === 1) {
             try {
-              const latex = await commands.ocrImage(aPath);
+              const latex = await commands.ocrImage(answerPaths[0]);
               aType = "latex";
               aContent = latex;
             } catch {
               aType = "image";
-              aContent = aPath;
+              aContent = answerPaths[0];
             }
           } else {
             aType = "image";
-            aContent = aPath;
+            aContent = answerPaths.join("|||");
           }
         }
 

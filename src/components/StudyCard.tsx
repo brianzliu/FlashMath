@@ -98,5 +98,16 @@ function FlashcardContent({
     return <LaTeXRenderer content={content} />;
   }
 
+  if (content.includes("|||")) {
+    const images = content.split("|||").filter(Boolean);
+    return (
+      <div className="flex flex-col gap-4">
+        {images.map((src, i) => (
+          <ZoomableImage key={i} src={src} alt={`Flashcard content ${i + 1}`} />
+        ))}
+      </div>
+    );
+  }
+
   return <ZoomableImage src={content} alt="Flashcard content" />;
 }
