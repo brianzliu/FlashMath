@@ -8,6 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/stores/app-store";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Cpu, Save, Plug, PencilRuler } from "lucide-react";
 
 const PROVIDERS = [
@@ -37,6 +44,8 @@ const DEFAULT_URLS: Record<string, string> = {
 export default function SettingsPage() {
   const shuffleCards = useAppStore((state) => state.shuffleCards);
   const setShuffleCards = useAppStore((state) => state.setShuffleCards);
+  const theme = useAppStore((state) => state.theme);
+  const setTheme = useAppStore((state) => state.setTheme);
 
   const [provider, setProvider] = useState<string>("openai");
   const [apiKey, setApiKey] = useState("");
@@ -219,7 +228,7 @@ export default function SettingsPage() {
         <CardContent className="p-6 space-y-5">
           <div className="flex items-center gap-2 mb-2">
             <PencilRuler className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-bold">Study Preferences</h2>
+            <h2 className="text-sm font-bold">Preferences</h2>
           </div>
 
           <div className="flex items-center justify-between">
@@ -236,6 +245,28 @@ export default function SettingsPage() {
               onCheckedChange={setShuffleCards}
             />
           </div>
+
+          <div className="h-px bg-border" />
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium">Appearance</label>
+              <p className="text-xs text-muted-foreground">
+                Select your preferred color scheme.
+              </p>
+            </div>
+            <Select value={theme} onValueChange={(val: any) => setTheme(val)}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="system">System</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="dark">Dark</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
         </CardContent>
       </Card>
     </div>

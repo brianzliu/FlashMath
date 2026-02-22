@@ -12,6 +12,8 @@ export function Layout() {
   const setPendingScreenshot = useAppStore((s) => s.setPendingScreenshot);
   const aiPanelOpen = useAppStore((s) => s.aiPanelOpen);
   const setAiPanelOpen = useAppStore((s) => s.setAiPanelOpen);
+  const theme = useAppStore((s) => s.theme);
+
   const navigateRef = useRef(navigate);
   const setPendingScreenshotRef = useRef(setPendingScreenshot);
 
@@ -19,6 +21,24 @@ export function Layout() {
     navigateRef.current = navigate;
     setPendingScreenshotRef.current = setPendingScreenshot;
   }, [navigate, setPendingScreenshot]);
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    const applyTheme = () => {
+      root.classList.remove("light", "dark");
+      if (theme === "system") {
+        root.classList.add(mediaQuery.matches ? "dark" : "light");
+      } else {
+        root.classList.add(theme);
+      }
+    };
+
+    applyTheme();
+    mediaQuery.addEventListener("change", applyTheme);
+    return () => mediaQuery.removeEventListener("change", applyTheme);
+  }, [theme]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

@@ -58,6 +58,9 @@ interface AppState {
   // Study Settings
   shuffleCards: boolean;
   setShuffleCards: (shuffle: boolean) => void;
+
+  theme: "light" | "dark" | "system";
+  setTheme: (theme: "light" | "dark" | "system") => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -123,5 +126,21 @@ export const useAppStore = create<AppState>((set) => ({
       localStorage.setItem("flashmath_shuffle_cards", String(shuffle));
     }
     set({ shuffleCards: shuffle });
+  },
+
+  theme: (() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("flashmath_theme");
+      if (stored === "light" || stored === "dark" || stored === "system") {
+        return stored;
+      }
+    }
+    return "system";
+  })(),
+  setTheme: (theme) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("flashmath_theme", theme);
+    }
+    set({ theme });
   },
 }));
