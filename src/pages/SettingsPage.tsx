@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Cpu, Save, Plug } from "lucide-react";
+import { useAppStore } from "@/stores/app-store";
+import { Switch } from "@/components/ui/switch";
+import { Cpu, Save, Plug, PencilRuler } from "lucide-react";
 
 const PROVIDERS = [
   { value: "openai", label: "OpenAI" },
@@ -33,6 +35,9 @@ const DEFAULT_URLS: Record<string, string> = {
 };
 
 export default function SettingsPage() {
+  const shuffleCards = useAppStore((state) => state.shuffleCards);
+  const setShuffleCards = useAppStore((state) => state.setShuffleCards);
+
   const [provider, setProvider] = useState<string>("openai");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("gpt-4o");
@@ -52,7 +57,7 @@ export default function SettingsPage() {
         setModel(config.model);
         setBaseUrl(config.base_url);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
 
@@ -207,6 +212,30 @@ export default function SettingsPage() {
               {testResult}
             </Badge>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-6 space-y-5">
+          <div className="flex items-center gap-2 mb-2">
+            <PencilRuler className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-bold">Study Preferences</h2>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium">
+                Shuffle Flashcards
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Randomize the order of due cards during study sessions.
+              </p>
+            </div>
+            <Switch
+              checked={shuffleCards}
+              onCheckedChange={setShuffleCards}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

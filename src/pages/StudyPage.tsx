@@ -8,6 +8,7 @@ import { SessionSummary } from "@/components/SessionSummary";
 import type { Flashcard, ReviewResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
+import { shuffleArray } from "@/lib/utils";
 
 type SessionState = "loading" | "studying" | "revealing" | "summary";
 
@@ -46,6 +47,11 @@ export default function StudyPage() {
           folderId === "all" ? undefined : folderId
         );
       }
+
+      if (useAppStore.getState().shuffleCards) {
+        cards = shuffleArray(cards);
+      }
+
       if (cards.length === 0) {
         setState("summary");
       } else {

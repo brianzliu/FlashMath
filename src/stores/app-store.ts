@@ -54,6 +54,10 @@ interface AppState {
     getAnswer: () => string;
   } | null;
   setEditorCallbacks: (cbs: AppState["editorCallbacks"]) => void;
+
+  // Study Settings
+  shuffleCards: boolean;
+  setShuffleCards: (shuffle: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -107,4 +111,17 @@ export const useAppStore = create<AppState>((set) => ({
 
   editorCallbacks: null,
   setEditorCallbacks: (cbs) => set({ editorCallbacks: cbs }),
+
+  shuffleCards: (() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("flashmath_shuffle_cards") === "true";
+    }
+    return false;
+  })(),
+  setShuffleCards: (shuffle) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("flashmath_shuffle_cards", String(shuffle));
+    }
+    set({ shuffleCards: shuffle });
+  },
 }));
