@@ -53,7 +53,7 @@ export function Layout() {
     <div className="flex h-screen overflow-hidden bg-background text-foreground antialiased">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-6 pb-8 lg:px-10">
+        <div className="mx-auto w-full max-w-[1400px] px-6 pb-8 lg:px-10">
           <Outlet />
         </div>
       </main>

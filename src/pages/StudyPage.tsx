@@ -132,7 +132,7 @@ export default function StudyPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 animate-fade-up">
+    <div className="max-w-[1400px] w-full mx-auto space-y-6 animate-fade-up flex flex-col justify-start min-h-[calc(100vh-8rem)] px-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">
@@ -161,13 +161,12 @@ export default function StudyPage() {
         {dueCards.map((_, i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full transition-colors ${
-              i < currentIndex
-                ? "bg-primary"
-                : i === currentIndex
+            className={`h-1.5 flex-1 rounded-full transition-colors ${i < currentIndex
+              ? "bg-primary"
+              : i === currentIndex
                 ? "bg-primary/50"
                 : "bg-border"
-            }`}
+              }`}
           />
         ))}
       </div>

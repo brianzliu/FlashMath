@@ -19,7 +19,7 @@ export function StudyCard({
   onRate,
 }: StudyCardProps) {
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden w-full">
       {/* Question */}
       <CardContent className="p-6 pb-4">
         <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
