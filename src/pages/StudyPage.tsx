@@ -9,6 +9,7 @@ import type { Flashcard, ReviewResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { shuffleArray } from "@/lib/utils";
+import { getScheduledDueCards } from "@/lib/review-policy";
 
 type SessionState = "loading" | "studying" | "revealing" | "summary";
 
@@ -37,15 +38,22 @@ export default function StudyPage() {
 
   const loadDueCards = useCallback(async () => {
     try {
+      const availableFolders =
+        folders.length > 0 ? folders : await commands.getFolders();
       let cards: Flashcard[];
+      let allCards: Flashcard[] | undefined;
       if (reviewAll) {
         cards = await commands.getFlashcards(
           folderId === "all" ? undefined : folderId
         );
       } else {
+        allCards = await commands.getFlashcards(
+          folderId === "all" ? undefined : folderId
+        );
         cards = await commands.getDueFlashcards(
           folderId === "all" ? undefined : folderId
         );
+        cards = getScheduledDueCards(cards, availableFolders, allCards);
       }
 
       if (useAppStore.getState().shuffleCards) {
@@ -63,7 +71,7 @@ export default function StudyPage() {
     } catch {
       setState("summary");
     }
-  }, [folderId, reviewAll]);
+  }, [folderId, folders, reviewAll]);
 
   useEffect(() => {
     loadDueCards();

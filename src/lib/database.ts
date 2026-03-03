@@ -6,6 +6,14 @@ import type {
   Review,
   StudyStats,
 } from "./types";
+import {
+  DEFAULT_AUTO_TARGET_REPS,
+  DEFAULT_REVIEW_CARDS_PER_DAY,
+  getFolderReviewMode,
+  getScheduledDueCards,
+  sanitizeAutoTargetReps,
+  sanitizeReviewCardsPerDay,
+} from "./review-policy";
 
 import type Database from "@tauri-apps/plugin-sql";
 
@@ -99,20 +107,30 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
+function normalizeFolder(folder: Folder): Folder {
+  return {
+    ...folder,
+    review_cards_per_day: sanitizeReviewCardsPerDay(folder.review_cards_per_day),
+    review_target_mode: getFolderReviewMode(folder),
+    auto_target_reps: sanitizeAutoTargetReps(folder.auto_target_reps),
+  };
+}
+
 // --- Folders ---
 
 export async function getFolders(): Promise<Folder[]> {
   if (await useLocalMode()) {
     const localDb = getLocalDb();
-    return [...localDb.folders].sort((a, b) => {
+    return [...localDb.folders].map(normalizeFolder).sort((a, b) => {
       if (a.position !== b.position) return a.position - b.position;
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
   }
   const db = await getDb();
-  return db.select<Folder[]>(
+  const rows = await db.select<Folder[]>(
     "SELECT * FROM folders ORDER BY position ASC, created_at ASC"
   );
+  return rows.map(normalizeFolder);
 }
 
 export async function createFolder(name: string): Promise<Folder> {
@@ -126,6 +144,9 @@ export async function createFolder(name: string): Promise<Folder> {
       emoji: null,
       position: 0,
       deadline: null,
+      review_cards_per_day: DEFAULT_REVIEW_CARDS_PER_DAY,
+      review_target_mode: "fixed",
+      auto_target_reps: DEFAULT_AUTO_TARGET_REPS,
       created_at: now,
       updated_at: now,
     };
@@ -136,15 +157,17 @@ export async function createFolder(name: string): Promise<Folder> {
   }
   const db = await getDb();
   await db.execute(
-    "INSERT INTO folders (id, name, position, created_at, updated_at) VALUES ($1, $2, 0, $3, $4)",
-    [id, name, now, now]
+    `INSERT INTO folders
+      (id, name, position, deadline, review_cards_per_day, review_target_mode, auto_target_reps, created_at, updated_at)
+     VALUES ($1, $2, 0, NULL, $3, 'fixed', $4, $5, $6)`,
+    [id, name, DEFAULT_REVIEW_CARDS_PER_DAY, DEFAULT_AUTO_TARGET_REPS, now, now]
   );
   const rows = await db.select<Folder[]>(
     "SELECT * FROM folders WHERE id = $1",
     [id]
   );
   emitDataChanged();
-  return rows[0];
+  return normalizeFolder(rows[0]);
 }
 
 export async function renameFolder(id: string, name: string): Promise<void> {
@@ -225,6 +248,46 @@ export async function setFolderDeadline(
   await db.execute(
     "UPDATE folders SET deadline = $1, updated_at = $2 WHERE id = $3",
     [deadline, nowISO(), id]
+  );
+  emitDataChanged();
+}
+
+export async function setFolderReviewSettings(
+  id: string,
+  reviewCardsPerDay: number,
+  reviewTargetMode: Folder["review_target_mode"],
+  autoTargetReps: number
+): Promise<void> {
+  const nextReviewCardsPerDay = sanitizeReviewCardsPerDay(reviewCardsPerDay);
+  const nextReviewTargetMode = getFolderReviewMode({
+    review_target_mode: reviewTargetMode,
+  } as Pick<Folder, "review_target_mode">);
+  const nextAutoTargetReps = sanitizeAutoTargetReps(autoTargetReps);
+
+  if (await useLocalMode()) {
+    const localDb = getLocalDb();
+    localDb.folders = localDb.folders.map((folder) =>
+      folder.id === id
+        ? {
+            ...folder,
+            review_cards_per_day: nextReviewCardsPerDay,
+            review_target_mode: nextReviewTargetMode,
+            auto_target_reps: nextAutoTargetReps,
+            updated_at: nowISO(),
+          }
+        : folder
+    );
+    saveLocalDb(localDb);
+    emitDataChanged();
+    return;
+  }
+
+  const db = await getDb();
+  await db.execute(
+    `UPDATE folders
+     SET review_cards_per_day = $1, review_target_mode = $2, auto_target_reps = $3, updated_at = $4
+     WHERE id = $5`,
+    [nextReviewCardsPerDay, nextReviewTargetMode, nextAutoTargetReps, nowISO(), id]
   );
   emitDataChanged();
 }
@@ -689,13 +752,13 @@ export async function getStudyStats(folderId?: string): Promise<StudyStats> {
 
   if (await useLocalMode()) {
     const localDb = getLocalDb();
+    const folders = localDb.folders.map(normalizeFolder);
     const cards = folderId
       ? localDb.flashcards.filter((card) => card.folder_id === folderId)
       : localDb.flashcards.filter((card) => card.folder_id !== null);
     const totalCards = cards.length;
-    const dueToday = cards.filter(
-      (card) => !card.due_date || card.due_date <= now
-    ).length;
+    const dueCards = cards.filter((card) => !card.due_date || card.due_date <= now);
+    const dueToday = getScheduledDueCards(dueCards, folders, cards).length;
     const allowedCardIds = new Set(cards.map((card) => card.id));
     const reviewedToday = localDb.reviews.filter(
       (review) => review.reviewed_at >= todayISO && allowedCardIds.has(review.flashcard_id)
@@ -709,40 +772,27 @@ export async function getStudyStats(folderId?: string): Promise<StudyStats> {
     return {
       total_cards: totalCards,
       due_today: dueToday,
-      overdue: dueToday,
+      overdue: dueCards.length,
       reviewed_today: reviewedToday,
       accuracy_today: reviewedToday > 0 ? correctToday / reviewedToday : 0,
     };
   }
 
   const db = await getDb();
-  let totalCards: number;
-  let dueToday: number;
-
-  if (folderId) {
-    const tcRows = await db.select<{ count: number }[]>(
-      "SELECT COUNT(*) as count FROM flashcards WHERE folder_id = $1",
-      [folderId]
-    );
-    totalCards = tcRows[0]?.count || 0;
-
-    const dtRows = await db.select<{ count: number }[]>(
-      "SELECT COUNT(*) as count FROM flashcards WHERE folder_id = $1 AND (due_date IS NULL OR due_date <= $2)",
-      [folderId, now]
-    );
-    dueToday = dtRows[0]?.count || 0;
-  } else {
-    const tcRows = await db.select<{ count: number }[]>(
-      "SELECT COUNT(*) as count FROM flashcards WHERE folder_id IS NOT NULL"
-    );
-    totalCards = tcRows[0]?.count || 0;
-
-    const dtRows = await db.select<{ count: number }[]>(
-      "SELECT COUNT(*) as count FROM flashcards WHERE folder_id IS NOT NULL AND (due_date IS NULL OR due_date <= $1)",
-      [now]
-    );
-    dueToday = dtRows[0]?.count || 0;
-  }
+  const folders = (await db.select<Folder[]>(
+    "SELECT * FROM folders ORDER BY position ASC, created_at ASC"
+  )).map(normalizeFolder);
+  const cards = folderId
+    ? await db.select<Flashcard[]>(
+        "SELECT * FROM flashcards WHERE folder_id = $1",
+        [folderId]
+      )
+    : await db.select<Flashcard[]>(
+        "SELECT * FROM flashcards WHERE folder_id IS NOT NULL"
+      );
+  const totalCards = cards.length;
+  const dueCards = cards.filter((card) => !card.due_date || card.due_date <= now);
+  const dueToday = getScheduledDueCards(dueCards, folders, cards).length;
 
   let reviewedToday = 0;
   let correctToday = 0;
@@ -787,7 +837,7 @@ export async function getStudyStats(folderId?: string): Promise<StudyStats> {
   return {
     total_cards: totalCards,
     due_today: dueToday,
-    overdue: dueToday, // For now, same as due
+    overdue: dueCards.length,
     reviewed_today: reviewedToday,
     accuracy_today: reviewedToday > 0 ? correctToday / reviewedToday : 0,
   };

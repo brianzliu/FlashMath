@@ -8,6 +8,9 @@ pub struct Folder {
     pub emoji: Option<String>,
     pub position: i32,
     pub deadline: Option<String>,
+    pub review_cards_per_day: i32,
+    pub review_target_mode: String,
+    pub auto_target_reps: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -167,6 +170,21 @@ pub fn get_migrations() -> Vec<Migration> {
             version: 3,
             description: "add title column to flashcards",
             sql: "ALTER TABLE flashcards ADD COLUMN title TEXT;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "add folder review settings",
+            sql: r#"
+            ALTER TABLE folders ADD COLUMN review_cards_per_day INTEGER NOT NULL DEFAULT 20;
+            ALTER TABLE folders ADD COLUMN review_target_mode TEXT NOT NULL DEFAULT 'fixed';
+        "#,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "add folder auto target reps",
+            sql: "ALTER TABLE folders ADD COLUMN auto_target_reps INTEGER NOT NULL DEFAULT 3;",
             kind: MigrationKind::Up,
         },
     ]

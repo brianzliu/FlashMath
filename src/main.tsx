@@ -5,6 +5,7 @@ import "./globals.css";
 import { Layout } from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import FolderPage from "./pages/FolderPage";
+import FolderOptionsPage from "./pages/FolderOptionsPage";
 import CardPage from "./pages/CardPage";
 import StudyPage from "./pages/StudyPage";
 import BrowsePage from "./pages/BrowsePage";
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/folder" element={<FolderPage />} />
+          <Route path="/folder/options" element={<FolderOptionsPage />} />
           <Route path="/card" element={<CardPage />} />
           <Route path="/study" element={<StudyPage />} />
           <Route path="/browse" element={<BrowsePage />} />

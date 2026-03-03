@@ -4,10 +4,10 @@ import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
 import { cn, formatDate, daysUntil } from "@/lib/utils";
 import type { Flashcard, Folder } from "@/lib/types";
+import { getEffectiveDailyReviewLimit } from "@/lib/review-policy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   Plus,
   BookOpen,
@@ -18,6 +18,7 @@ import {
   Calendar,
   Target,
   Clock,
+  Settings2,
   RotateCcw,
 } from "lucide-react";
 import { CardPreviewModal } from "@/components/CardPreviewModal";
@@ -27,13 +28,11 @@ import { confirmDestructive } from "@/lib/dialogs";
 export default function FolderPage() {
   const [searchParams] = useSearchParams();
   const folderId = searchParams.get("id") || "";
-  const { folders, setFolders, updateFolder } = useAppStore();
+  const { folders, setFolders } = useAppStore();
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [loading, setLoading] = useState(true);
   const [folder, setFolder] = useState<Folder | null>(null);
   const [folderLoading, setFolderLoading] = useState(true);
-  const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
-  const [deadlineInput, setDeadlineInput] = useState("");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -84,10 +83,14 @@ export default function FolderPage() {
     loadFlashcards();
   }, [loadFlashcards]);
 
-  const dueCount = flashcards.filter((c) => {
+  const dueCards = flashcards.filter((c) => {
     if (!c.due_date) return true;
     return new Date(c.due_date) <= new Date();
-  }).length;
+  });
+  const dueCount = dueCards.length;
+  const scheduledDueCount = folder
+    ? Math.min(dueCount, getEffectiveDailyReviewLimit(folder, flashcards))
+    : dueCount;
 
   const matureCount = flashcards.filter((c) => c.interval_days >= 7).length;
   const masteryPercent =
@@ -137,32 +140,6 @@ export default function FolderPage() {
     }
   };
 
-  const handleSetDeadline = async () => {
-    if (!deadlineInput || !folderId) return;
-    try {
-      await commands.setFolderDeadline(folderId, deadlineInput);
-      updateFolder(folderId, { deadline: deadlineInput });
-      setFolder((prev) =>
-        prev ? { ...prev, deadline: deadlineInput } : prev
-      );
-      setShowDeadlinePicker(false);
-    } catch {
-      /* noop */
-    }
-  };
-
-  const handleClearDeadline = async () => {
-    if (!folderId) return;
-    try {
-      await commands.setFolderDeadline(folderId, null);
-      updateFolder(folderId, { deadline: null });
-      setFolder((prev) => (prev ? { ...prev, deadline: null } : prev));
-      setShowDeadlinePicker(false);
-    } catch {
-      /* noop */
-    }
-  };
-
   if (folderLoading)
     return (
       <p className="text-muted-foreground py-8 text-center">Loading deck...</p>
@@ -184,8 +161,10 @@ export default function FolderPage() {
           </h1>
           <div className="flex items-center gap-3 mt-1.5 text-sm text-muted-foreground">
             <span>{flashcards.length} cards</span>
-            {dueCount > 0 && (
-              <span className="text-primary font-semibold">{dueCount} due</span>
+            {scheduledDueCount > 0 && (
+              <span className="text-primary font-semibold">
+                {scheduledDueCount} scheduled today
+              </span>
             )}
             {folder.deadline && (
               <span className="flex items-center gap-1">
@@ -196,11 +175,11 @@ export default function FolderPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          {dueCount > 0 && (
+          {scheduledDueCount > 0 && (
             <Button asChild>
               <Link to={`/study?folderId=${folderId}`}>
                 <BookOpen className="h-4 w-4 mr-1.5" />
-                Study ({dueCount})
+                Study ({scheduledDueCount})
               </Link>
             </Button>
           )}
@@ -212,6 +191,12 @@ export default function FolderPage() {
               </Link>
             </Button>
           )}
+          <Button variant="ghost" asChild className="text-muted-foreground">
+            <Link to={`/folder/options?id=${folderId}`}>
+              <Settings2 className="h-3.5 w-3.5" />
+              Options
+            </Link>
+          </Button>
         </div>
       </div>
 
@@ -241,17 +226,9 @@ export default function FolderPage() {
 
         <Card>
           <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-warning" />
-                <span className="text-sm font-bold">Deadline</span>
-              </div>
-              <button
-                onClick={() => setShowDeadlinePicker(!showDeadlinePicker)}
-                className="text-xs text-primary hover:underline"
-              >
-                {folder.deadline ? "Change" : "Set deadline"}
-              </button>
+            <div className="flex items-center gap-2 mb-3">
+              <Calendar className="h-4 w-4 text-warning" />
+              <span className="text-sm font-bold">Deadline</span>
             </div>
             {folder.deadline ? (
               <div>
@@ -266,29 +243,6 @@ export default function FolderPage() {
               <p className="text-sm text-muted-foreground">
                 No deadline set.
               </p>
-            )}
-            {showDeadlinePicker && (
-              <div className="mt-3 flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={deadlineInput}
-                  onChange={(e) => setDeadlineInput(e.target.value)}
-                  className="h-8 text-sm"
-                />
-                <Button size="sm" className="h-8" onClick={handleSetDeadline}>
-                  Set
-                </Button>
-                {folder.deadline && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8"
-                    onClick={handleClearDeadline}
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
             )}
           </CardContent>
         </Card>

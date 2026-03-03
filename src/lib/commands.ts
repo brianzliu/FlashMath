@@ -12,6 +12,7 @@ export {
   deleteFolder,
   setFolderEmoji,
   setFolderDeadline,
+  setFolderReviewSettings,
   getFlashcards,
   getFlashcard,
   createFlashcard,

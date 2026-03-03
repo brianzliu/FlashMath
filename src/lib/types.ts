@@ -4,6 +4,9 @@ export interface Folder {
   emoji: string | null;
   position: number;
   deadline: string | null;
+  review_cards_per_day: number;
+  review_target_mode: "fixed" | "dynamic";
+  auto_target_reps: number;
   created_at: string;
   updated_at: string;
 }
