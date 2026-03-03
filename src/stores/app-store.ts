@@ -97,8 +97,18 @@ export const useAppStore = create<AppState>((set) => ({
   llmConfig: null,
   setLLMConfig: (config) => set({ llmConfig: config }),
 
-  sidebarOpen: true,
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  sidebarOpen: (() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("flashmath_sidebar_open") !== "false";
+    }
+    return true;
+  })(),
+  setSidebarOpen: (open) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("flashmath_sidebar_open", String(open));
+    }
+    set({ sidebarOpen: open });
+  },
 
   pendingScreenshot: null,
   setPendingScreenshot: (dataUrl) => set({ pendingScreenshot: dataUrl }),

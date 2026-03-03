@@ -3,14 +3,15 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useAppStore } from "@/stores/app-store";
 import * as commands from "@/lib/commands";
 import { cn } from "@/lib/utils";
-import type { Folder, Flashcard } from "@/lib/types";
+import type { Folder } from "@/lib/types";
 import {
   LayoutDashboard,
   Settings,
   FolderPlus,
   Folder as FolderIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Trash2,
-  BookOpen,
   Zap,
   Library,
   Images,
@@ -19,17 +20,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { confirmDestructive } from "@/lib/dialogs";
 
-interface FolderWithStats extends Folder {
-  cardCount: number;
-  dueCount: number;
-}
-
-export function Sidebar() {
+export function Sidebar({
+  pinnedOpen,
+  onTogglePinned,
+}: {
+  pinnedOpen: boolean;
+  onTogglePinned: () => void;
+}) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const pathname = location.pathname;
   const activeFolderId =
-    pathname === "/folder" ? searchParams.get("id") : null;
+    pathname.startsWith("/folder") ? searchParams.get("id") : null;
   const { folders, setFolders, addFolder, removeFolder, updateFolder } =
     useAppStore();
   const [newFolderName, setNewFolderName] = useState("");
@@ -131,12 +133,25 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar shadow-sm">
       {/* Logo */}
-      <div className="px-5 pt-5 pb-4">
+      <div className="flex items-center justify-between px-5 pt-5 pb-4">
         <Link to="/" className="flex items-center gap-2.5">
           <span className="text-lg font-bold tracking-tight">FlashMath</span>
         </Link>
+        <button
+          type="button"
+          onClick={onTogglePinned}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          title={pinnedOpen ? "Collapse sidebar" : "Pin sidebar open"}
+          aria-label={pinnedOpen ? "Collapse sidebar" : "Pin sidebar open"}
+        >
+          {pinnedOpen ? (
+            <PanelLeftClose className="h-4 w-4 transition-transform duration-300 ease-out" />
+          ) : (
+            <PanelLeftOpen className="h-4 w-4 transition-transform duration-300 ease-out" />
+          )}
+        </button>
       </div>
 
       {/* Nav */}

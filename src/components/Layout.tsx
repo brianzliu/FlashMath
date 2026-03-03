@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { AIChatPanel } from "./AIChatPanel";
@@ -10,12 +10,16 @@ import { cn } from "@/lib/utils";
 export function Layout() {
   const navigate = useNavigate();
   const setPendingScreenshot = useAppStore((s) => s.setPendingScreenshot);
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
   const aiPanelOpen = useAppStore((s) => s.aiPanelOpen);
   const setAiPanelOpen = useAppStore((s) => s.setAiPanelOpen);
   const theme = useAppStore((s) => s.theme);
+  const [sidebarPeek, setSidebarPeek] = useState(false);
 
   const navigateRef = useRef(navigate);
   const setPendingScreenshotRef = useRef(setPendingScreenshot);
+  const sidebarVisible = sidebarOpen || sidebarPeek;
 
   useEffect(() => {
     navigateRef.current = navigate;
@@ -71,9 +75,49 @@ export function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground antialiased">
-      <Sidebar />
+      <div
+        className={cn(
+          "relative shrink-0 transition-[width] duration-300 ease-out",
+          sidebarOpen ? "w-64" : "w-0"
+        )}
+      >
+        <div
+          className="sidebar-shell absolute inset-y-0 left-0 z-20 w-64"
+          data-visible={sidebarVisible}
+          data-pinned={sidebarOpen}
+          onMouseEnter={() => {
+            if (!sidebarOpen) setSidebarPeek(true);
+          }}
+          onMouseLeave={() => {
+            if (!sidebarOpen) setSidebarPeek(false);
+          }}
+        >
+          <Sidebar
+            pinnedOpen={sidebarOpen}
+            onTogglePinned={() => {
+              if (sidebarOpen) {
+                setSidebarOpen(false);
+                setSidebarPeek(false);
+              } else {
+                setSidebarOpen(true);
+                setSidebarPeek(false);
+              }
+            }}
+          />
+        </div>
+      </div>
+
+      {!sidebarOpen && (
+        <div
+          className="sidebar-peek-rail absolute inset-y-0 left-0 z-10 w-5"
+          data-active={!sidebarVisible}
+          onMouseEnter={() => setSidebarPeek(true)}
+          aria-hidden="true"
+        />
+      )}
+
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1400px] px-6 pb-8 lg:px-10">
+        <div className="mx-auto w-full max-w-[1400px] px-6 pt-5 pb-8 lg:px-10">
           <Outlet />
         </div>
       </main>
