@@ -5,6 +5,8 @@ import * as commands from "@/lib/commands";
 import { cn, formatDate, daysUntil } from "@/lib/utils";
 import type { Flashcard, Folder } from "@/lib/types";
 import { getEffectiveDailyReviewLimit } from "@/lib/review-policy";
+import { ImageDisplay } from "@/components/ImageDisplay";
+import { LaTeXRenderer } from "@/components/LaTeXRenderer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -275,10 +277,25 @@ export default function FolderPage() {
             </Button>
           </div>
           {flashcards.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex items-center justify-end gap-2 shrink-0">
+              <div className="w-[11.5rem]">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className={cn(
+                    "w-full justify-center transition-opacity",
+                    selectedIds.size === 0 && "invisible pointer-events-none"
+                  )}
+                  onClick={handleBulkDelete}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Delete Selected ({selectedIds.size})
+                </Button>
+              </div>
               <Button
                 size="sm"
                 variant="outline"
+                className="min-w-[8.5rem] justify-center"
                 onClick={() => {
                   setSelectedIds(
                     selectedIds.size === flashcards.length
@@ -289,16 +306,6 @@ export default function FolderPage() {
               >
                 {selectedIds.size === flashcards.length ? "Clear Selection" : "Select All"}
               </Button>
-              {selectedIds.size > 0 && (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={handleBulkDelete}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  Delete Selected ({selectedIds.size})
-                </Button>
-              )}
             </div>
           )}
         </div>
@@ -369,79 +376,164 @@ function FlashcardRow({
   onToggleSelect: () => void;
 }) {
   const isDue = !card.due_date || new Date(card.due_date) <= new Date();
+  const hasAnswer = Boolean(card.answer_content);
+  const statusLabel = isDue
+    ? "Due"
+    : card.repetitions === 0
+    ? "New"
+    : formatDate(card.due_date!);
+  const statusVariant = isDue
+    ? "default"
+    : card.repetitions === 0
+    ? "warning"
+    : "success";
 
   return (
-    <Card className="transition-all hover:shadow-sm hover:border-primary/20 cursor-pointer" onClick={onClick}>
-      <CardContent className="p-4 flex items-center gap-4">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggleSelect}
-          onClick={(e) => e.stopPropagation()}
-          className="h-4 w-4 rounded border-border accent-primary"
-          aria-label="Select flashcard"
-        />
-        <div
-          className={cn(
-            "h-2.5 w-2.5 rounded-full shrink-0",
-            isDue
-              ? "bg-primary"
-              : card.repetitions === 0
-              ? "bg-warning"
-              : "bg-success"
-          )}
-        />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">
-            {card.title
-              ? card.title
-              : card.question_type === "latex"
-              ? card.question_content.slice(0, 80)
-              : "[Image]"}
-          </p>
-          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-            <span className="flex items-center gap-0.5">
-              <Clock className="h-3 w-3" />
-              {formatTimer(card.timer_seconds)}
-            </span>
-            <span>EF {card.ease_factor.toFixed(1)}</span>
-            <span>Rep {card.repetitions}</span>
+    <Card
+      className="cursor-pointer overflow-hidden transition-all hover:border-primary/20 hover:shadow-sm"
+      onClick={onClick}
+    >
+      <CardContent className="p-0">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-4 py-3">
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="truncate text-sm font-semibold">
+              {card.title
+                ? card.title
+                : card.question_type === "latex"
+                ? card.question_content.slice(0, 80)
+                : "[Image]"}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant={statusVariant} className="shrink-0 text-[10px]">
+                {statusLabel}
+              </Badge>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatTimer(card.timer_seconds)}
+              </span>
+              <span>EF {card.ease_factor.toFixed(1)}</span>
+              <span>Rep {card.repetitions}</span>
+            </div>
+          </div>
+          <div
+            className="flex items-center gap-1.5 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <label
+              className={cn(
+                "flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-lg border border-border bg-background px-2 transition-colors hover:bg-accent",
+                selected && "border-primary bg-primary/10"
+              )}
+              title={selected ? "Deselect card" : "Select card"}
+            >
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={onToggleSelect}
+                className="h-4 w-4 rounded border-border accent-primary"
+                aria-label="Select flashcard"
+              />
+            </label>
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+              <Link to={`/card?id=${card.id}`}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
-        <Badge
-          variant={
-            isDue
-              ? "default"
-              : card.repetitions === 0
-              ? "warning"
-              : "success"
-          }
-          className="shrink-0 text-[10px]"
-        >
-          {isDue
-            ? "Due"
-            : card.repetitions === 0
-            ? "New"
-            : formatDate(card.due_date!)}
-        </Badge>
-        <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-            <Link to={`/card?id=${card.id}`}>
-              <Pencil className="h-3.5 w-3.5" />
-            </Link>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 hover:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+
+        <div className="grid gap-3 p-4 lg:grid-cols-2">
+          <PreviewColumn
+            label="Question"
+            type={card.question_type}
+            content={card.question_content}
+            emptyLabel="No question"
+          />
+          <PreviewColumn
+            label="Answer"
+            type={card.answer_type || "latex"}
+            content={card.answer_content}
+            emptyLabel="No answer"
+            muted={!hasAnswer}
+          />
         </div>
       </CardContent>
     </Card>
   );
+}
+
+function PreviewColumn({
+  label,
+  type,
+  content,
+  emptyLabel,
+  muted = false,
+}: {
+  label: string;
+  type: string;
+  content: string | null;
+  emptyLabel: string;
+  muted?: boolean;
+}) {
+  const images = type === "image" && content ? getImageSources(content) : [];
+
+  return (
+    <div
+      className={cn(
+        "min-w-0 rounded-xl border border-border/70 bg-muted/20 p-3",
+        muted && "opacity-80"
+      )}
+    >
+      <div className="mb-3">
+        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      {!content ? (
+        <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border/60 bg-background px-3 text-center text-xs text-muted-foreground">
+          {emptyLabel}
+        </div>
+      ) : type === "image" ? (
+        <div
+          className={cn(
+            "grid gap-2",
+            images.length === 1 ? "grid-cols-1" : "grid-cols-2"
+          )}
+        >
+          {images.map((src, index) => (
+            <div
+              key={`${label}-${index}`}
+              className="overflow-hidden rounded-lg border border-border/60 bg-background"
+            >
+              <ImageDisplay
+                src={src}
+                alt={`${label} ${index + 1}`}
+                className="h-32 w-full object-cover"
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-border/60 bg-background p-3.5">
+          <div className="max-h-32 overflow-hidden text-sm leading-6">
+            <LaTeXRenderer content={content} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getImageSources(content: string): string[] {
+  return content.split("|||").filter(Boolean);
 }
 
 function formatTimer(seconds: number): string {
