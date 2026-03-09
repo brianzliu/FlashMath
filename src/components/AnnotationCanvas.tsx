@@ -218,12 +218,9 @@ export function AnnotationCanvas({
           const display = scaleRegionToDisplay(region);
           const isSelected = region.id === selectedId;
 
-          // Compute max dropdown options and disabled state
+          // Compute max dropdown options
           const typeRegions = regionsByType.filter((r) => r.role === region.role);
           const maxNum = Math.max(20, typeRegions.length + 5);
-          const usedNumbers = new Set(
-            typeRegions.filter((r) => r.id !== region.id).map((r) => r.labelNumber)
-          );
 
           return (
             <div
@@ -267,7 +264,6 @@ export function AnnotationCanvas({
                     <option
                       key={num}
                       value={num}
-                      disabled={usedNumbers.has(num)}
                       className="text-foreground bg-popover font-medium"
                     >
                       {num}
