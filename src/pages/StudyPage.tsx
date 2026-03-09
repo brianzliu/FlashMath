@@ -172,16 +172,26 @@ export default function StudyPage() {
       </div>
 
       <div className="flex gap-1">
-        {dueCards.map((_, i) => (
+        {dueCards.map((card, i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full transition-colors ${i < currentIndex
-              ? "bg-primary"
-              : i === currentIndex
-                ? "bg-primary/50"
-                : "bg-border"
-              }`}
-          />
+            className="flex-1 group relative"
+            title={`Rep ${card.repetitions}`}
+          >
+            <div
+              className={`h-1.5 rounded-full transition-colors ${i < currentIndex
+                ? "bg-primary"
+                : i === currentIndex
+                  ? "bg-primary/50"
+                  : "bg-border"
+                }`}
+            />
+            <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:flex items-center justify-center">
+              <span className="bg-popover text-popover-foreground text-[10px] font-medium px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap border border-border">
+                Rep {card.repetitions}
+              </span>
+            </div>
+          </div>
         ))}
       </div>
 
