@@ -387,25 +387,35 @@ export default function ImportPdfPage() {
         return path;
       };
 
-      for (let i = 0; i < sortedQuestions.length; i++) {
-        const q = sortedQuestions[i];
-        // Find matching answers by explicitly linking question label number to answer label number
-        const matchingAnswers = sortedAnswers.filter(ans => ans.labelNumber === q.labelNumber);
+      // Group by unique label numbers so multiple Q/A boxes with the same number
+      // become a single card with multi-image question/answer content.
+      const uniqueLabels = [...new Set(sortedQuestions.map(q => q.labelNumber))].sort((a, b) => a - b);
 
-        const qPagePath = await getSavedPage(q.pageIndex);
-        const qPath = await commands.cropRegion(qPagePath, q.x, q.y, q.width, q.height);
+      for (const labelNum of uniqueLabels) {
+        const questionsForLabel = sortedQuestions.filter(q => q.labelNumber === labelNum);
+        const matchingAnswers = sortedAnswers.filter(ans => ans.labelNumber === labelNum);
+
+        // Crop all question images for this label
+        const questionPaths: string[] = [];
+        for (const q of questionsForLabel) {
+          const qPagePath = await getSavedPage(q.pageIndex);
+          const qPath = await commands.cropRegion(qPagePath, q.x, q.y, q.width, q.height);
+          questionPaths.push(qPath);
+        }
 
         let qType: "image" | "latex" = "image";
-        let qContent = qPath;
+        let qContent: string;
 
-        if (useOcr) {
+        if (useOcr && questionPaths.length === 1) {
           try {
-            const latex = await commands.ocrImage(qPath);
+            const latex = await commands.ocrImage(questionPaths[0]);
             qType = "latex";
             qContent = latex;
           } catch {
-            // fallback
+            qContent = questionPaths[0];
           }
+        } else {
+          qContent = questionPaths.join("|||");
         }
 
         let aType: "image" | "latex" | undefined;
@@ -657,7 +667,7 @@ export default function ImportPdfPage() {
             </label>
 
             <Button size="sm" onClick={handleCreateCards} disabled={creating || sortedQuestions.length === 0} className="rounded-full h-10 px-5 font-bold">
-              {creating ? "Creating..." : `Import ${sortedQuestions.length} Cards`}
+              {creating ? "Creating..." : `Import ${new Set(sortedQuestions.map(q => q.labelNumber)).size} Cards`}
               <Upload className="h-4 w-4 ml-2 opacity-80" />
             </Button>
           </div>
