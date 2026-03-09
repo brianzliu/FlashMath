@@ -91,14 +91,20 @@ export default function FolderPage() {
     return () => window.removeEventListener("flashmath:data-changed", refresh);
   }, [loadFlashcards]);
 
-  const dueCards = flashcards.filter((c) => {
-    if (!c.due_date) return true;
-    return new Date(c.due_date) <= new Date();
-  });
-  const dueCount = dueCards.length;
-  const scheduledDueCount = folder
-    ? Math.min(dueCount, getEffectiveDailyReviewLimit(folder, flashcards))
-    : dueCount;
+  const now = new Date();
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const dueCards = flashcards.filter((c) => !c.due_date || new Date(c.due_date) <= now);
+  const reviewedCorrectlyToday = flashcards.filter(
+    (c) =>
+      c.last_reviewed && new Date(c.last_reviewed) >= todayStart &&
+      c.due_date && new Date(c.due_date) > now
+  );
+  const limit = folder ? getEffectiveDailyReviewLimit(folder, flashcards) : Infinity;
+  const scheduledDueCount = Math.max(
+    0,
+    Math.min(dueCards.length + reviewedCorrectlyToday.length, limit) - reviewedCorrectlyToday.length
+  );
 
   const matureCount = flashcards.filter((c) => c.interval_days >= 7).length;
   const masteryPercent =

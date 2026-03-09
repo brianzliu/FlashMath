@@ -758,7 +758,17 @@ export async function getStudyStats(folderId?: string): Promise<StudyStats> {
       : localDb.flashcards.filter((card) => card.folder_id !== null);
     const totalCards = cards.length;
     const dueCards = cards.filter((card) => !card.due_date || card.due_date <= now);
-    const dueToday = getScheduledDueCards(dueCards, folders, cards).length;
+    // Cards reviewed correctly today: reviewed today AND now scheduled for the future
+    const reviewedCorrectlyToday = cards.filter(
+      (card) =>
+        card.last_reviewed && card.last_reviewed >= todayISO &&
+        card.due_date && card.due_date > now
+    );
+    // Original scheduled pool = currently due + already reviewed correctly today
+    const originalScheduled = getScheduledDueCards(
+      [...dueCards, ...reviewedCorrectlyToday], folders, cards
+    ).length;
+    const dueToday = Math.max(0, originalScheduled - reviewedCorrectlyToday.length);
     const allowedCardIds = new Set(cards.map((card) => card.id));
     const reviewedToday = localDb.reviews.filter(
       (review) => review.reviewed_at >= todayISO && allowedCardIds.has(review.flashcard_id)
@@ -792,7 +802,16 @@ export async function getStudyStats(folderId?: string): Promise<StudyStats> {
       );
   const totalCards = cards.length;
   const dueCards = cards.filter((card) => !card.due_date || card.due_date <= now);
-  const dueToday = getScheduledDueCards(dueCards, folders, cards).length;
+  // Cards reviewed correctly today: reviewed today AND now scheduled for the future
+  const reviewedCorrectlyToday = cards.filter(
+    (card) =>
+      card.last_reviewed && card.last_reviewed >= todayISO &&
+      card.due_date && card.due_date > now
+  );
+  const originalScheduled = getScheduledDueCards(
+    [...dueCards, ...reviewedCorrectlyToday], folders, cards
+  ).length;
+  const dueToday = Math.max(0, originalScheduled - reviewedCorrectlyToday.length);
 
   let reviewedToday = 0;
   let correctToday = 0;
