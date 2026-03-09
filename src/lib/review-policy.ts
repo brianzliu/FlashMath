@@ -127,24 +127,14 @@ export function getScheduledDueCards(
       folder,
       allCardsByFolder.get(key) ?? cards
     );
-    // Prioritize new cards (never reviewed) first, then overdue by oldest due date
-    const newCards = cards.filter((c) => c.repetitions === 0);
-    const reviewedCards = cards
-      .filter((c) => c.repetitions > 0)
-      .sort((a, b) => {
-        const dueA = a.due_date ? new Date(a.due_date).getTime() : 0;
-        const dueB = b.due_date ? new Date(b.due_date).getTime() : 0;
-        return dueA - dueB;
-      });
-    scheduled.push(...[...newCards, ...reviewedCards].slice(0, limit));
+    // Score each card: score = random * 0.5^reps, so each rep halves the expected score.
+    // New cards (rep=0) draw from [0,1], rep=1 from [0,0.5], rep=2 from [0,0.25], etc.
+    const ordered = [...cards]
+      .map((card) => ({ card, score: Math.random() * Math.pow(0.5, card.repetitions) }))
+      .sort((a, b) => b.score - a.score)
+      .map(({ card }) => card);
+    scheduled.push(...ordered.slice(0, limit));
   }
 
-  return scheduled.sort((a, b) => {
-    // Keep new cards first, then sort reviewed cards by due date
-    if (a.repetitions === 0 && b.repetitions > 0) return -1;
-    if (a.repetitions > 0 && b.repetitions === 0) return 1;
-    const dueA = a.due_date ? new Date(a.due_date).getTime() : 0;
-    const dueB = b.due_date ? new Date(b.due_date).getTime() : 0;
-    return dueA - dueB;
-  });
+  return scheduled;
 }
