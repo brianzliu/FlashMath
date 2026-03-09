@@ -85,6 +85,12 @@ export default function FolderPage() {
     loadFlashcards();
   }, [loadFlashcards]);
 
+  useEffect(() => {
+    const refresh = () => { void loadFlashcards(); };
+    window.addEventListener("flashmath:data-changed", refresh);
+    return () => window.removeEventListener("flashmath:data-changed", refresh);
+  }, [loadFlashcards]);
+
   const dueCards = flashcards.filter((c) => {
     if (!c.due_date) return true;
     return new Date(c.due_date) <= new Date();

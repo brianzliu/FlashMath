@@ -127,10 +127,22 @@ export function getScheduledDueCards(
       folder,
       allCardsByFolder.get(key) ?? cards
     );
-    scheduled.push(...cards.slice(0, limit));
+    // Prioritize new cards (never reviewed) first, then overdue by oldest due date
+    const newCards = cards.filter((c) => c.repetitions === 0);
+    const reviewedCards = cards
+      .filter((c) => c.repetitions > 0)
+      .sort((a, b) => {
+        const dueA = a.due_date ? new Date(a.due_date).getTime() : 0;
+        const dueB = b.due_date ? new Date(b.due_date).getTime() : 0;
+        return dueA - dueB;
+      });
+    scheduled.push(...[...newCards, ...reviewedCards].slice(0, limit));
   }
 
   return scheduled.sort((a, b) => {
+    // Keep new cards first, then sort reviewed cards by due date
+    if (a.repetitions === 0 && b.repetitions > 0) return -1;
+    if (a.repetitions > 0 && b.repetitions === 0) return 1;
     const dueA = a.due_date ? new Date(a.due_date).getTime() : 0;
     const dueB = b.due_date ? new Date(b.due_date).getTime() : 0;
     return dueA - dueB;
