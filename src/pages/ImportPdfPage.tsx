@@ -15,6 +15,8 @@ import {
   Trash2,
   RefreshCw,
   History,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
@@ -22,6 +24,7 @@ import {
   getImportById,
   linkFlashcardsToImport,
   listRecentImports,
+  removeImportItem,
   savePdfImport,
   saveRegionsToImport,
   touchImport,
@@ -78,6 +81,39 @@ export default function ImportPdfPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault();
+        setSpaceHeld(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setSpaceHeld(false);
+        setIsPanning(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoom(prev => Math.min(4, Math.max(0.25, prev * (1 - e.deltaY * 0.002))));
+    };
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [pageImages.length]);
+
   const [creating, setCreating] = useState(false);
   const [useOcr, setUseOcr] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -85,8 +121,15 @@ export default function ImportPdfPage() {
   const [recentImports, setRecentImports] = useState<PdfImportItem[]>([]);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [orphanedImportId, setOrphanedImportId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  const [zoom, setZoom] = useState(1);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
 
   const folderName = useMemo(
     () => folders.find((f) => f.id === folderId)?.name || "",
@@ -158,6 +201,7 @@ export default function ImportPdfPage() {
       }
 
       setPageImages(images);
+      setZoom(1);
       return true;
     } catch (err) {
       console.error("Failed to render PDF:", err);
@@ -169,59 +213,70 @@ export default function ImportPdfPage() {
     }
   }, []);
 
+  // Returns true on success. Sets importError / orphanedImportId on failure.
+  const loadPdfImportItem = useCallback(async (item: PdfImportItem): Promise<boolean> => {
+    setImportError(null);
+    setOrphanedImportId(null);
+    setFileName(item.name);
+
+    let buffer: ArrayBuffer | null = null;
+
+    // Try sourcePath first — it's the most reliable for large files.
+    if (item.sourcePath) {
+      try {
+        const { readFile } = await import("@tauri-apps/plugin-fs");
+        const data = await readFile(item.sourcePath);
+        buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      } catch (err) {
+        const msg = String(err).toLowerCase();
+        // "os error 2" / "no such file" / "not found" all mean the file is gone.
+        if (msg.includes("os error 2") || msg.includes("no such file") || msg.includes("not found") || msg.includes("does not exist")) {
+          setOrphanedImportId(item.id);
+          setImportError(`"${item.name}" can't be found at its original location.`);
+          setFileName(null);
+          return false;
+        }
+        // Other FS error — fall through to base64.
+        console.warn("FS read failed, falling back to base64:", err);
+      }
+    }
+
+    // Fall back to stored base64 if we don't have a buffer yet.
+    if (!buffer) {
+      buffer = decodePdfBase64(item.base64Data);
+    }
+
+    const rendered = await renderPdfToImages(buffer);
+    if (!rendered) {
+      setImportError("Failed to open this saved PDF import.");
+      setFileName(null);
+      return false;
+    }
+
+    setRegions(item.regions ?? []);
+    setActiveImportId(item.id);
+    await touchImport(item.id);
+    await refreshRecentImports();
+    return true;
+  }, [refreshRecentImports, renderPdfToImages]);
+
   useEffect(() => {
     let cancelled = false;
     if (!importId) return;
 
     const loadImport = async () => {
-      try {
-        const item = await getImportById(importId);
-        if (!item || item.kind !== "pdf" || cancelled) {
-          if (!cancelled) {
-            setImportError("Could not load saved PDF import.");
-          }
-          return;
-        }
-        setImportError(null);
-        setFileName(item.name);
-        const buffer = decodePdfBase64(item.base64Data);
-        let rendered = await renderPdfToImages(buffer);
-        if (!rendered && item.sourcePath) {
-          try {
-            const { readFile } = await import("@tauri-apps/plugin-fs");
-            const data = await readFile(item.sourcePath);
-            const sourceBuffer = data.buffer.slice(
-              data.byteOffset,
-              data.byteOffset + data.byteLength
-            ) as ArrayBuffer;
-            rendered = await renderPdfToImages(sourceBuffer);
-          } catch (fallbackErr) {
-            console.error("Failed to load PDF from sourcePath fallback:", fallbackErr);
-          }
-        }
-        if (!rendered || cancelled) {
-          if (!cancelled) {
-            setImportError("Failed to open this saved PDF import.");
-          }
-          return;
-        }
-        setRegions(item.regions ?? []);
-        setActiveImportId(item.id);
-        await touchImport(item.id);
-        await refreshRecentImports();
-      } catch (err) {
-        console.error("Failed to preload saved PDF import:", err);
-        if (!cancelled) {
-          setImportError("Failed to open this saved PDF import.");
-        }
+      const item = await getImportById(importId).catch(() => null);
+      if (!item || item.kind !== "pdf") {
+        if (!cancelled) setImportError("Could not load saved PDF import.");
+        return;
       }
+      if (cancelled) return;
+      await loadPdfImportItem(item as PdfImportItem);
     };
 
     void loadImport();
-    return () => {
-      cancelled = true;
-    };
-  }, [importId, refreshRecentImports, renderPdfToImages]);
+    return () => { cancelled = true; };
+  }, [importId, loadPdfImportItem]);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -342,34 +397,8 @@ export default function ImportPdfPage() {
   }, [regions, activeImportId]);
 
   const handleUseRecentImport = useCallback(
-    async (item: PdfImportItem) => {
-      setImportError(null);
-      setFileName(item.name);
-      const buffer = decodePdfBase64(item.base64Data);
-      let rendered = await renderPdfToImages(buffer);
-      if (!rendered && item.sourcePath) {
-        try {
-          const { readFile } = await import("@tauri-apps/plugin-fs");
-          const data = await readFile(item.sourcePath);
-          const sourceBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength
-          ) as ArrayBuffer;
-          rendered = await renderPdfToImages(sourceBuffer);
-        } catch (fallbackErr) {
-          console.error("Failed to load PDF from sourcePath fallback:", fallbackErr);
-        }
-      }
-      if (!rendered) {
-        setImportError("Failed to open this saved PDF import.");
-        return;
-      }
-      setRegions(item.regions ?? []);
-      setActiveImportId(item.id);
-      await touchImport(item.id);
-      await refreshRecentImports();
-    },
-    [refreshRecentImports, renderPdfToImages]
+    (item: PdfImportItem) => loadPdfImportItem(item),
+    [loadPdfImportItem]
   );
 
   const handleCreateCards = async () => {
@@ -533,8 +562,24 @@ export default function ImportPdfPage() {
 
       {importError && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="py-3 text-sm text-destructive">
-            {importError}
+          <CardContent className="py-3 flex items-center justify-between gap-4">
+            <p className="text-sm text-destructive">{importError}</p>
+            {orphanedImportId && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="shrink-0"
+                onClick={async () => {
+                  await removeImportItem(orphanedImportId);
+                  setOrphanedImportId(null);
+                  setImportError(null);
+                  await refreshRecentImports();
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                Remove from list
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -620,8 +665,33 @@ export default function ImportPdfPage() {
             </div>
           )}
 
-          <div className="flex-1 h-full overflow-y-auto pb-32 bg-muted/20 md:px-8">
-            <div className="max-w-[850px] mx-auto shadow-sm bg-white border">
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 h-full overflow-auto pb-32 bg-muted/20 md:px-8"
+            style={{ cursor: spaceHeld ? (isPanning ? 'grabbing' : 'grab') : undefined }}
+            onMouseDown={(e) => {
+              if (!spaceHeld) return;
+              setIsPanning(true);
+              panStartRef.current = {
+                x: e.clientX,
+                y: e.clientY,
+                scrollLeft: scrollContainerRef.current?.scrollLeft ?? 0,
+                scrollTop: scrollContainerRef.current?.scrollTop ?? 0,
+              };
+              e.preventDefault();
+            }}
+            onMouseMove={(e) => {
+              if (!isPanning || !scrollContainerRef.current) return;
+              scrollContainerRef.current.scrollLeft = panStartRef.current.scrollLeft - (e.clientX - panStartRef.current.x);
+              scrollContainerRef.current.scrollTop = panStartRef.current.scrollTop - (e.clientY - panStartRef.current.y);
+            }}
+            onMouseUp={() => setIsPanning(false)}
+            onMouseLeave={() => setIsPanning(false)}
+          >
+            <div
+              className="shadow-sm bg-white border mx-auto"
+              style={{ width: 850, zoom }}
+            >
               {pageImages.map((img, idx) => (
                 <div key={idx} ref={el => { pageRefs.current[idx] = el; }} className="border-b last:border-b-0 border-border/30">
                   <AnnotationCanvas
@@ -629,7 +699,7 @@ export default function ImportPdfPage() {
                     pageIndex={idx}
                     regions={regions.filter(r => r.pageIndex === idx)}
                     regionsByType={regions}
-                    activeMode={activeMode}
+                    activeMode={spaceHeld ? null : activeMode}
                     onRegionAdded={handleRegionAdded}
                     onRegionChange={handleRegionChange}
                     onRegionDeleted={(id) => setRegions(prev => prev.filter(r => r.id !== id))}
@@ -657,6 +727,22 @@ export default function ImportPdfPage() {
             >
               <LinkIcon className="h-4 w-4 mr-2 opacity-80" />
               Draw Answer
+            </Button>
+
+            <div className="w-px h-6 bg-border mx-2"></div>
+
+            <Button variant="ghost" size="icon" className="rounded-full h-8 w-8" onClick={() => setZoom(z => Math.min(4, z * 1.25))} title="Zoom in (Ctrl+Scroll)">
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <button
+              className="text-[12px] font-mono text-muted-foreground hover:text-foreground transition-colors w-10 text-center"
+              onClick={() => setZoom(1)}
+              title="Reset zoom"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <Button variant="ghost" size="icon" className="rounded-full h-8 w-8" onClick={() => setZoom(z => Math.max(0.25, z * 0.8))} title="Zoom out (Ctrl+Scroll)">
+              <ZoomOut className="h-4 w-4" />
             </Button>
 
             <div className="w-px h-6 bg-border mx-2"></div>
