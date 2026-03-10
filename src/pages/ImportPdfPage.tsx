@@ -222,6 +222,7 @@ export default function ImportPdfPage() {
     setFileName(item.name);
 
     let buffer: ArrayBuffer | null = null;
+    let sourcePathMissing = false;
 
     // Try sourcePath first — it's the most reliable for large files.
     if (item.sourcePath) {
@@ -233,13 +234,12 @@ export default function ImportPdfPage() {
         const msg = String(err).toLowerCase();
         // "os error 2" / "no such file" / "not found" all mean the file is gone.
         if (msg.includes("os error 2") || msg.includes("no such file") || msg.includes("not found") || msg.includes("does not exist")) {
-          setOrphanedImportId(item.id);
-          setImportError(`"${item.name}" can't be found at its original location.`);
-          setFileName(null);
-          return false;
+          sourcePathMissing = true;
+          console.warn("Source PDF is missing, falling back to saved copy:", err);
+        } else {
+          // Other FS error — fall through to base64.
+          console.warn("FS read failed, falling back to base64:", err);
         }
-        // Other FS error — fall through to base64.
-        console.warn("FS read failed, falling back to base64:", err);
       }
     }
 
@@ -250,7 +250,12 @@ export default function ImportPdfPage() {
 
     const rendered = await renderPdfToImages(buffer);
     if (!rendered) {
-      setImportError("Failed to open this saved PDF import.");
+      if (sourcePathMissing) {
+        setOrphanedImportId(item.id);
+        setImportError(`"${item.name}" can't be found at its original location, and the saved copy could not be opened.`);
+      } else {
+        setImportError("Failed to open this saved PDF import.");
+      }
       setFileName(null);
       return false;
     }
