@@ -31,6 +31,8 @@ import {
   type PdfImportItem,
 } from "@/lib/import-library";
 
+const PDF_BASE_WIDTH = 850;
+
 function OutlineNode({ item, onNavigate }: { item: any, onNavigate: (pageIndex: number) => void }) {
   return (
     <div className="pl-3 font-medium text-[12px] my-1 border-l border-border/40">
@@ -690,7 +692,7 @@ export default function ImportPdfPage() {
           >
             <div
               className="shadow-sm bg-white border mx-auto"
-              style={{ width: 850, zoom }}
+              style={{ width: PDF_BASE_WIDTH * zoom }}
             >
               {pageImages.map((img, idx) => (
                 <div key={idx} ref={el => { pageRefs.current[idx] = el; }} className="border-b last:border-b-0 border-border/30">
@@ -699,6 +701,7 @@ export default function ImportPdfPage() {
                     pageIndex={idx}
                     regions={regions.filter(r => r.pageIndex === idx)}
                     regionsByType={regions}
+                    className="max-w-none"
                     activeMode={spaceHeld ? null : activeMode}
                     onRegionAdded={handleRegionAdded}
                     onRegionChange={handleRegionChange}

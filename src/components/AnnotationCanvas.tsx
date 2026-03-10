@@ -66,6 +66,7 @@ export function AnnotationCanvas({
   regionsByType = [],
   className,
 }: AnnotationCanvasProps) {
+  const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
@@ -82,12 +83,33 @@ export function AnnotationCanvas({
   });
 
   const getRelativePos = useCallback((clientX: number, clientY: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
+    const container = containerRef.current;
+    const rect = container?.getBoundingClientRect();
+    if (!container || !rect) return { x: 0, y: 0 };
+
+    const scaleX = rect.width > 0 && container.clientWidth > 0
+      ? rect.width / container.clientWidth
+      : 1;
+    const scaleY = rect.height > 0 && container.clientHeight > 0
+      ? rect.height / container.clientHeight
+      : 1;
+
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
+      x: (clientX - rect.left) / scaleX,
+      y: (clientY - rect.top) / scaleY,
     };
+  }, []);
+
+  const updateImageMetrics = useCallback(() => {
+    const img = imgRef.current;
+    if (!img) return;
+
+    setImgDimensions({
+      width: img.clientWidth,
+      height: img.clientHeight,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+    });
   }, []);
 
   const hasImageBounds =
@@ -329,15 +351,19 @@ export function AnnotationCanvas({
     }
   }, []);
 
-  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    setImgDimensions({
-      width: img.clientWidth,
-      height: img.clientHeight,
-      naturalWidth: img.naturalWidth,
-      naturalHeight: img.naturalHeight,
+  useEffect(() => {
+    updateImageMetrics();
+
+    const img = imgRef.current;
+    if (!img || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      updateImageMetrics();
     });
-  };
+
+    observer.observe(img);
+    return () => observer.disconnect();
+  }, [imageUrl, updateImageMetrics]);
 
   return (
     <div className={cn("relative inline-block w-full max-w-[800px] mx-auto bg-white mb-0", className)}>
@@ -350,10 +376,11 @@ export function AnnotationCanvas({
         onPointerCancel={handlePointerCancel}
       >
         <img
+          ref={imgRef}
           src={imageUrl}
           alt={`Page ${pageIndex + 1}`}
           className="w-full h-auto block"
-          onLoad={handleImageLoad}
+          onLoad={updateImageMetrics}
           draggable={false}
         />
 
